@@ -862,7 +862,7 @@ select {
 /* Toast notification */
 .toast {
     position: fixed;
-    bottom: 2rem;
+    bottom: 5rem;
     right: 2rem;
     padding: 0.75rem 1.25rem;
     border-radius: var(--radius);
