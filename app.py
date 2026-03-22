@@ -283,11 +283,13 @@ def api_delete_rule(filename):
     try:
         base_dir = os.path.abspath(RULES_DIR)
         filepath = os.path.abspath(os.path.join(base_dir, filename))
-        # Ensure the resolved path is within the rules directory to prevent path traversal
-        if os.path.commonpath([base_dir, filepath]) != base_dir:
+        # Normalize paths and ensure the resolved path is within the rules directory to prevent path traversal
+        safe_base_dir = os.path.realpath(base_dir)
+        safe_filepath = os.path.realpath(filepath)
+        if os.path.commonpath([safe_base_dir, safe_filepath]) != safe_base_dir:
             return jsonify({"success": False, "error": "Invalid filename"}), 400
-        if os.path.exists(filepath):
-            os.remove(filepath)
+        if os.path.exists(safe_filepath):
+            os.remove(safe_filepath)
             return jsonify({"success": True, "message": f"Deleted: {filename}"})
         return jsonify({"success": False, "error": "File not found"}), 404
     except Exception as e:
