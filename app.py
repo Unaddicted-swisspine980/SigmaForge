@@ -274,7 +274,8 @@ def api_load_rule(filename):
             "conversions": conversions,
         })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        logging.exception("Error loading rule from library")
+        return jsonify({"success": False, "error": "An internal error occurred while loading the rule."}), 400
 
 
 @app.route("/api/library/delete/<filename>", methods=["DELETE"])
@@ -289,7 +290,8 @@ def api_delete_rule(filename):
             return jsonify({"success": True, "message": f"Deleted: {filename}"})
         return jsonify({"success": False, "error": "File not found"}), 404
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        logging.exception("Error deleting rule from library")
+        return jsonify({"success": False, "error": "An internal error occurred while deleting the rule."}), 400
 
 
 @app.route("/api/library/export", methods=["GET"])
@@ -314,7 +316,8 @@ def api_export_library():
             "rules": rules,
         })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        logging.exception("Error exporting rule library")
+        return jsonify({"success": False, "error": "An internal error occurred while exporting the library."}), 400
 
 
 @app.route("/api/log-sources", methods=["GET"])
