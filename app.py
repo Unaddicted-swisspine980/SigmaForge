@@ -343,4 +343,7 @@ def api_templates():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # Debug mode is controlled via the FLASK_DEBUG environment variable.
+    # Any value of "1", "true", or "True" enables debug; otherwise it is disabled.
+    flask_debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true")
+    app.run(debug=flask_debug, host="0.0.0.0", port=5000)
