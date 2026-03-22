@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SigmaForge — Sigma Rule Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔷</text></svg>">
+</head>
+<body>
+    <!-- ══════════════════════════════════════ -->
+    <!-- HEADER                                 -->
+    <!-- ══════════════════════════════════════ -->
+    <header class="app-header">
+        <div class="header-brand">
+            <div class="brand-icon">Σ</div>
+            <div class="brand-text">
+                <h1>SigmaForge</h1>
+                <span class="brand-subtitle">Vendor-Agnostic Sigma Rule Generator</span>
+            </div>
+        </div>
+        <nav class="header-nav">
+            <button class="nav-btn active" data-tab="builder">Rule Builder</button>
+            <button class="nav-btn" data-tab="templates">Templates</button>
+            <button class="nav-btn" data-tab="validator">Validator</button>
+            <button class="nav-btn" data-tab="library">Rule Library</button>
+        </nav>
+    </header>
+
+    <main class="app-main">
+        <!-- ══════════════════════════════════════ -->
+        <!-- TAB: RULE BUILDER                      -->
+        <!-- ══════════════════════════════════════ -->
+        <section class="tab-content active" id="tab-builder">
+            <div class="builder-grid">
+                <!-- Left: Form -->
+                <div class="builder-form">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Rule Metadata</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <div class="form-group flex-2">
+                                    <label for="rule-title">Title</label>
+                                    <input type="text" id="rule-title" placeholder="Suspicious PowerShell Execution" maxlength="256">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label for="rule-author">Author</label>
+                                    <input type="text" id="rule-author" placeholder="SigmaForge" value="SigmaForge">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="rule-description">Description</label>
+                                <textarea id="rule-description" rows="2" placeholder="Detects potentially malicious activity..."></textarea>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label for="rule-level">Level</label>
+                                    <select id="rule-level">
+                                        <option value="informational">Informational</option>
+                                        <option value="low">Low</option>
+                                        <option value="medium" selected>Medium</option>
+                                        <option value="high">High</option>
+                                        <option value="critical">Critical</option>
+                                    </select>
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label for="rule-status">Status</label>
+                                    <select id="rule-status">
+                                        <option value="experimental" selected>Experimental</option>
+                                        <option value="test">Test</option>
+                                        <option value="stable">Stable</option>
+                                        <option value="deprecated">Deprecated</option>
+                                        <option value="unsupported">Unsupported</option>
+                                    </select>
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label for="rule-logsource">Log Source</label>
+                                    <select id="rule-logsource">
+                                        {% for key, src in log_sources.items() %}
+                                        <option value="{{ key }}">{{ src.description }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MITRE ATT&CK -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>MITRE ATT&CK Mapping</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="mitre-selector">
+                                <div class="form-row">
+                                    <div class="form-group flex-1">
+                                        <label for="mitre-tactic-filter">Filter by Tactic</label>
+                                        <select id="mitre-tactic-filter">
+                                            <option value="">All Tactics</option>
+                                            {% for tactic, tid in tactic_ids.items() %}
+                                            <option value="{{ tactic }}">{{ tid }} — {{ tactic | replace('-', ' ') | title }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="form-group flex-2">
+                                        <label for="mitre-search">Search Techniques</label>
+                                        <input type="text" id="mitre-search" placeholder="e.g. T1059 or PowerShell">
+                                    </div>
+                                </div>
+                                <div class="mitre-techniques-list" id="mitre-list">
+                                    <!-- Populated by JS -->
+                                </div>
+                                <div class="selected-techniques" id="selected-techniques">
+                                    <span class="label">Selected:</span>
+                                    <span class="none-selected">None selected</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Detection Logic -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Detection Logic</h2>
+                            <div class="card-actions">
+                                <button class="btn btn-sm btn-accent" onclick="addSelection()">+ Selection</button>
+                                <button class="btn btn-sm btn-secondary" onclick="addFilter()">+ Filter</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div id="selections-container">
+                                <!-- Default selection -->
+                                <div class="selection-block" data-type="selection" data-name="selection">
+                                    <div class="selection-header">
+                                        <input type="text" class="selection-name" value="selection" placeholder="selection name">
+                                        <span class="selection-type-badge badge-selection">SELECTION</span>
+                                        <button class="btn-icon" onclick="addFieldToSelection(this)" title="Add field">+</button>
+                                        <button class="btn-icon btn-danger" onclick="removeSelection(this)" title="Remove">×</button>
+                                    </div>
+                                    <div class="selection-fields">
+                                        <div class="field-row">
+                                            <select class="field-name">
+                                                <option value="">Select field...</option>
+                                            </select>
+                                            <select class="field-modifier">
+                                                <option value="">No modifier</option>
+                                                <option value="contains">contains</option>
+                                                <option value="startswith">startswith</option>
+                                                <option value="endswith">endswith</option>
+                                                <option value="re">regex</option>
+                                                <option value="all">all</option>
+                                                <option value="base64">base64</option>
+                                                <option value="cidr">cidr</option>
+                                            </select>
+                                            <textarea class="field-values" rows="1" placeholder="value1, value2 (comma-separated)"></textarea>
+                                            <button class="btn-icon btn-danger" onclick="removeField(this)" title="Remove field">×</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-group" style="margin-top: 1rem;">
+                                <label for="rule-condition">Condition</label>
+                                <input type="text" id="rule-condition" value="selection" placeholder="selection and not filter">
+                                <small class="form-hint">Boolean logic: <code>and</code>, <code>or</code>, <code>not</code>, parentheses. Reference selection/filter names.</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Additional Fields -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Additional Fields</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label for="rule-falsepositives">False Positives</label>
+                                <input type="text" id="rule-falsepositives" placeholder="Administrative scripts, Legitimate tools (comma-separated)">
+                            </div>
+                            <div class="form-group">
+                                <label for="rule-references">References</label>
+                                <input type="text" id="rule-references" placeholder="https://example.com/blog (comma-separated)">
+                            </div>
+                            <div class="form-group">
+                                <label for="rule-fields">Output Fields</label>
+                                <input type="text" id="rule-fields" placeholder="CommandLine, ParentImage, User (comma-separated)">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary btn-block" onclick="generateRule()">
+                        Generate Sigma Rule
+                    </button>
+                </div>
+
+                <!-- Right: Output -->
+                <div class="builder-output">
+                    <div class="card sticky-top">
+                        <div class="card-header">
+                            <h2>Generated Output</h2>
+                            <div class="card-actions">
+                                <button class="btn btn-sm btn-accent" onclick="copyOutput('yaml')" id="btn-copy-yaml" disabled>Copy YAML</button>
+                                <button class="btn btn-sm btn-secondary" onclick="saveToLibrary()" id="btn-save" disabled>Save to Library</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <!-- Validation Status -->
+                            <div class="validation-status" id="validation-status" style="display:none;">
+                                <div class="validation-icon"></div>
+                                <div class="validation-messages"></div>
+                            </div>
+
+                            <!-- MITRE Info -->
+                            <div class="mitre-info-panel" id="mitre-info-panel" style="display:none;">
+                            </div>
+
+                            <!-- YAML Output -->
+                            <div class="output-section">
+                                <div class="output-label">Sigma Rule (YAML)</div>
+                                <pre class="code-output" id="output-yaml"><span class="placeholder">Generated rule will appear here...</span></pre>
+                            </div>
+
+                            <!-- SIEM Conversions -->
+                            <div class="output-tabs" id="siem-tabs" style="display:none;">
+                                <button class="output-tab active" data-backend="splunk">Splunk SPL</button>
+                                <button class="output-tab" data-backend="elastic">Elastic KQL</button>
+                                <button class="output-tab" data-backend="eql">Elastic EQL</button>
+                                <button class="output-tab" data-backend="sentinel">Sentinel KQL</button>
+                            </div>
+                            <div class="output-section" id="siem-output" style="display:none;">
+                                <div class="output-actions">
+                                    <button class="btn btn-sm btn-secondary" onclick="copySIEMQuery()">Copy Query</button>
+                                </div>
+                                <pre class="code-output" id="output-siem"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════ -->
+        <!-- TAB: TEMPLATES                         -->
+        <!-- ══════════════════════════════════════ -->
+        <section class="tab-content" id="tab-templates">
+            <div class="templates-grid">
+                {% for key, tmpl in templates.items() %}
+                <div class="template-card" data-key="{{ key }}">
+                    <div class="template-level level-{{ tmpl.level }}">{{ tmpl.level | upper }}</div>
+                    <h3>{{ tmpl.name }}</h3>
+                    <p>{{ tmpl.description }}</p>
+                    <div class="template-meta">
+                        <span class="meta-tag">{{ log_sources[tmpl.log_source].description }}</span>
+                        {% for tech in tmpl.mitre_techniques %}
+                        <span class="meta-tag mitre-tag">{{ tech }}</span>
+                        {% endfor %}
+                    </div>
+                    <button class="btn btn-sm btn-accent" onclick="loadTemplate('{{ key }}')">Load Template</button>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════ -->
+        <!-- TAB: VALIDATOR                         -->
+        <!-- ══════════════════════════════════════ -->
+        <section class="tab-content" id="tab-validator">
+            <div class="validator-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Sigma Rule Validator</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label for="validate-input">Paste Sigma Rule YAML</label>
+                            <textarea id="validate-input" rows="20" class="code-input" placeholder="title: My Detection Rule&#10;id: ...&#10;logsource:&#10;    category: process_creation&#10;    product: windows&#10;detection:&#10;    selection:&#10;        Image|endswith: '\\cmd.exe'&#10;    condition: selection&#10;level: medium"></textarea>
+                        </div>
+                        <div class="form-row">
+                            <button class="btn btn-primary" onclick="validateRule()">Validate Rule</button>
+                            <button class="btn btn-accent" onclick="convertFromValidator()">Convert to SIEM Queries</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Results</h2>
+                    </div>
+                    <div class="card-body">
+                        <div id="validator-results">
+                            <span class="placeholder">Paste a rule and click Validate...</span>
+                        </div>
+                        <div id="validator-conversions" style="display:none;">
+                            <h3 style="margin-top:1.5rem;">SIEM Conversions</h3>
+                            <div class="output-tabs" id="validator-siem-tabs">
+                                <button class="output-tab active" data-backend="splunk" data-target="validator">Splunk SPL</button>
+                                <button class="output-tab" data-backend="elastic" data-target="validator">Elastic KQL</button>
+                                <button class="output-tab" data-backend="eql" data-target="validator">Elastic EQL</button>
+                                <button class="output-tab" data-backend="sentinel" data-target="validator">Sentinel KQL</button>
+                            </div>
+                            <pre class="code-output" id="validator-siem-output"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════ -->
+        <!-- TAB: RULE LIBRARY                      -->
+        <!-- ══════════════════════════════════════ -->
+        <section class="tab-content" id="tab-library">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Saved Rules</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-accent" onclick="exportLibrary()">Export All (JSON)</button>
+                        <button class="btn btn-sm btn-secondary" onclick="refreshLibrary()">Refresh</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="library-list">
+                        <span class="placeholder">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <span>SigmaForge v1.0.0</span>
+        <span>•</span>
+        <span>Vendor-Agnostic Detection Engineering</span>
+        <span>•</span>
+        <span>Splunk SPL · Elastic KQL · Elastic EQL · Sentinel KQL</span>
+    </footer>
+
+    <!-- Pass server data to JS -->
+    <script>
+        const LOG_SOURCES = {{ log_sources | tojson }};
+        const MITRE_MAP = {{ mitre_map | tojson }};
+        const TACTIC_IDS = {{ tactic_ids | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
