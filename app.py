@@ -9,16 +9,12 @@ import json
 import os
 import yaml
 from datetime import datetime
-import logging
 
 from src.sigma_engine import (
     SigmaRule, SigmaValidator, SIEMConverter,
     build_rule_from_form, build_rule_from_template,
     RULE_TEMPLATES, LOG_SOURCES, MITRE_ATTACK_MAP, TACTIC_IDS,
 )
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24)
@@ -100,11 +96,7 @@ def api_generate():
             "mitre_info": mitre_info,
         })
     except Exception as e:
-        app.logger.exception("Error while generating Sigma rule")
-        return jsonify({
-            "success": False,
-            "error": "An internal error occurred while generating the rule."
-        }), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/api/template/<template_key>", methods=["GET"])
@@ -145,11 +137,9 @@ def api_template(template_key):
             "mitre_info": mitre_info,
         })
     except ValueError as e:
-        logger.warning("Template '%s' failed to load or validate: %s", template_key, e)
-        return jsonify({"success": False, "error": "Requested template not found or is invalid."}), 404
+        return jsonify({"success": False, "error": str(e)}), 404
     except Exception as e:
-        logger.exception("Unexpected error while loading template '%s'.", template_key)
-        return jsonify({"success": False, "error": "An internal error has occurred while processing the template."}), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/api/validate", methods=["POST"])
@@ -161,8 +151,7 @@ def api_validate():
         validation = SigmaValidator.validate(rule_yaml)
         return jsonify({"success": True, "validation": validation})
     except Exception as e:
-        logger.exception("Unexpected error while validating Sigma rule.")
-        return jsonify({"success": False, "error": "An internal error has occurred while validating the rule."}), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/api/convert", methods=["POST"])
@@ -179,8 +168,7 @@ def api_convert():
         query = SIEMConverter.convert(rule_yaml, backend)
         return jsonify({"success": True, "query": query, "backend": backend})
     except Exception as e:
-        logger.exception("Unexpected error while converting Sigma rule to backend '%s'.", backend)
-        return jsonify({"success": False, "error": "An internal error has occurred while converting the rule."}), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/api/library/save", methods=["POST"])
@@ -211,11 +199,7 @@ def api_save_rule():
             "message": f"Rule saved: {filename}",
         })
     except Exception as e:
-        logger.exception("Unexpected error while saving Sigma rule to library.")
-        return jsonify({
-            "success": False,
-            "error": "An internal error has occurred while saving the rule.",
-        }), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/api/library/list", methods=["GET"])
@@ -249,30 +233,16 @@ def api_list_rules():
                     })
         return jsonify({"success": True, "rules": rules})
     except Exception as e:
-        logger.exception("Unexpected error while listing Sigma rules from library.")
-        return jsonify({
-            "success": False,
-            "error": "An internal error has occurred while listing the rules.",
-        }), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/api/library/load/<filename>", methods=["GET"])
 def api_load_rule(filename):
     """Load a rule from the library."""
     try:
-<<<<<<< Updated upstream
-        # Build normalized absolute path and ensure it stays within RULES_DIR
-        base_dir = os.path.abspath(RULES_DIR)
-        requested_path = os.path.normpath(os.path.join(base_dir, filename))
-        if not requested_path.startswith(base_dir + os.sep):
-            return jsonify({"success": False, "error": "Invalid filename"}), 400
-
-        filepath = requested_path
-=======
         filepath = _safe_library_path(filename)
         if not filepath:
             return jsonify({"success": False, "error": "Invalid filename"}), 400
->>>>>>> Stashed changes
         if not os.path.exists(filepath):
             return jsonify({"success": False, "error": "Rule not found"}), 404
 
@@ -294,41 +264,22 @@ def api_load_rule(filename):
             "conversions": conversions,
         })
     except Exception as e:
-        logger.exception("Error loading rule '%s'", filename)
-        return jsonify({"success": False, "error": "An internal error has occurred."}), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/api/library/delete/<filename>", methods=["DELETE"])
 def api_delete_rule(filename):
     """Delete a rule from the library."""
     try:
-<<<<<<< Updated upstream
-        # Reject absolute paths or filenames containing path separators to prevent traversal
-        if os.path.isabs(filename) or os.path.sep in filename or (os.path.altsep and os.path.altsep in filename):
-            return jsonify({"success": False, "error": "Invalid filename"}), 400
-
-        # Normalize the base rules directory and the target path
-        rules_base_dir = os.path.realpath(RULES_DIR)
-        safe_filepath = os.path.realpath(os.path.join(rules_base_dir, filename))
-
-        # Ensure the resolved path is within the rules directory to prevent path traversal
-        if os.path.commonpath([rules_base_dir, safe_filepath]) != rules_base_dir:
-            return jsonify({"success": False, "error": "Invalid filename"}), 400
-
-        if os.path.exists(safe_filepath):
-            os.remove(safe_filepath)
-=======
         filepath = _safe_library_path(filename)
         if not filepath:
             return jsonify({"success": False, "error": "Invalid filename"}), 400
         if os.path.exists(filepath):
             os.remove(filepath)
->>>>>>> Stashed changes
             return jsonify({"success": True, "message": f"Deleted: {filename}"})
         return jsonify({"success": False, "error": "File not found"}), 404
     except Exception as e:
-        logger.exception("Error deleting rule '%s'", filename)
-        return jsonify({"success": False, "error": "An internal error has occurred."}), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/api/library/export", methods=["GET"])
@@ -353,8 +304,7 @@ def api_export_library():
             "rules": rules,
         })
     except Exception as e:
-        logger.exception("Error exporting rule library")
-        return jsonify({"success": False, "error": "An internal error has occurred."}), 400
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/api/log-sources", methods=["GET"])
@@ -389,7 +339,4 @@ def api_templates():
 
 
 if __name__ == "__main__":
-    # Debug mode is controlled via the FLASK_DEBUG environment variable.
-    # Any value of "1", "true", or "True" enables debug; otherwise it is disabled.
-    flask_debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true")
-    app.run(debug=flask_debug, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5000)
