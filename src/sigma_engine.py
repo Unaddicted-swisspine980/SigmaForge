@@ -1007,9 +1007,13 @@ class SIEMConverter:
     @staticmethod
     def _parse_condition(condition: str, selections: dict, backend: str) -> str:
         """Parse the condition expression and substitute selection queries."""
+        # Limit condition length to prevent ReDoS on adversarial input
+        if len(condition) > 500:
+            return condition
+
         # Handle aggregation conditions (count, sum, etc.)
         agg_match = re.match(
-            r'(\w+)\s*\|\s*count\((\w*)\)\s*by\s*(\w+)\s*([><=!]+)\s*(\d+)',
+            r'(\w+)\s{0,10}\|\s{0,10}count\((\w*)\)\s{0,10}by\s{1,10}(\w+)\s{0,10}([><=!]{1,2})\s{0,10}(\d+)$',
             condition
         )
         if agg_match:
@@ -1020,7 +1024,7 @@ class SIEMConverter:
             )
 
         agg_match2 = re.match(
-            r'(\w+)\s*\|\s*count\(\)\s*by\s*(\w+)\s*([><=!]+)\s*(\d+)',
+            r'(\w+)\s{0,10}\|\s{0,10}count\(\)\s{0,10}by\s{1,10}(\w+)\s{0,10}([><=!]{1,2})\s{0,10}(\d+)$',
             condition
         )
         if agg_match2:

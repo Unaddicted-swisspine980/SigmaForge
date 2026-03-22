@@ -4,6 +4,7 @@ Web UI and API for Sigma rule generation, validation, and SIEM conversion.
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
+from werkzeug.utils import secure_filename
 import json
 import os
 import yaml
@@ -25,6 +26,18 @@ app.config["SECRET_KEY"] = os.urandom(24)
 # Rule library storage
 RULES_DIR = os.path.join(os.path.dirname(__file__), "rules")
 os.makedirs(RULES_DIR, exist_ok=True)
+
+
+def _safe_library_path(filename: str) -> str:
+    """Sanitize filename and return safe path within RULES_DIR. Returns None if unsafe."""
+    sanitized = secure_filename(filename)
+    if not sanitized or not sanitized.endswith((".yml", ".yaml")):
+        return None
+    filepath = os.path.join(RULES_DIR, sanitized)
+    # Prevent path traversal
+    if not os.path.abspath(filepath).startswith(os.path.abspath(RULES_DIR)):
+        return None
+    return filepath
 
 
 # ─────────────────────────────────────────────
@@ -184,8 +197,10 @@ def api_save_rule():
         safe_title = "".join(c if c.isalnum() or c in "-_ " else "" for c in title)
         safe_title = safe_title.replace(" ", "_").lower()[:50]
 
-        filename = f"{safe_title}_{rule_id[:8]}.yml"
-        filepath = os.path.join(RULES_DIR, filename)
+        filename = secure_filename(f"{safe_title}_{rule_id[:8]}.yml")
+        filepath = _safe_library_path(filename)
+        if not filepath:
+            return jsonify({"success": False, "error": "Invalid filename generated"}), 400
 
         with open(filepath, "w") as f:
             f.write(rule_yaml)
@@ -245,6 +260,7 @@ def api_list_rules():
 def api_load_rule(filename):
     """Load a rule from the library."""
     try:
+<<<<<<< Updated upstream
         # Build normalized absolute path and ensure it stays within RULES_DIR
         base_dir = os.path.abspath(RULES_DIR)
         requested_path = os.path.normpath(os.path.join(base_dir, filename))
@@ -252,6 +268,11 @@ def api_load_rule(filename):
             return jsonify({"success": False, "error": "Invalid filename"}), 400
 
         filepath = requested_path
+=======
+        filepath = _safe_library_path(filename)
+        if not filepath:
+            return jsonify({"success": False, "error": "Invalid filename"}), 400
+>>>>>>> Stashed changes
         if not os.path.exists(filepath):
             return jsonify({"success": False, "error": "Rule not found"}), 404
 
@@ -281,6 +302,7 @@ def api_load_rule(filename):
 def api_delete_rule(filename):
     """Delete a rule from the library."""
     try:
+<<<<<<< Updated upstream
         # Reject absolute paths or filenames containing path separators to prevent traversal
         if os.path.isabs(filename) or os.path.sep in filename or (os.path.altsep and os.path.altsep in filename):
             return jsonify({"success": False, "error": "Invalid filename"}), 400
@@ -295,6 +317,13 @@ def api_delete_rule(filename):
 
         if os.path.exists(safe_filepath):
             os.remove(safe_filepath)
+=======
+        filepath = _safe_library_path(filename)
+        if not filepath:
+            return jsonify({"success": False, "error": "Invalid filename"}), 400
+        if os.path.exists(filepath):
+            os.remove(filepath)
+>>>>>>> Stashed changes
             return jsonify({"success": True, "message": f"Deleted: {filename}"})
         return jsonify({"success": False, "error": "File not found"}), 404
     except Exception as e:
