@@ -162,7 +162,8 @@ def api_validate():
         validation = SigmaValidator.validate(rule_yaml)
         return jsonify({"success": True, "validation": validation})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        logging.exception("Unexpected error in api_validate")
+        return jsonify({"success": False, "error": "An internal error occurred while validating the rule."}), 400
 
 
 @app.route("/api/convert", methods=["POST"])
@@ -179,7 +180,8 @@ def api_convert():
         query = SIEMConverter.convert(rule_yaml, backend)
         return jsonify({"success": True, "query": query, "backend": backend})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        logging.exception("Unexpected error in api_convert for backend %s", backend)
+        return jsonify({"success": False, "error": "An internal error occurred while converting the rule."}), 400
 
 
 @app.route("/api/library/save", methods=["POST"])
@@ -210,7 +212,8 @@ def api_save_rule():
             "message": f"Rule saved: {filename}",
         })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        logging.exception("Unexpected error in api_save_rule")
+        return jsonify({"success": False, "error": "An internal error occurred while saving the rule."}), 400
 
 
 @app.route("/api/library/list", methods=["GET"])
