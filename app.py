@@ -149,7 +149,8 @@ def api_template(template_key):
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 404
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        logging.exception("Unexpected error in api_template for key %s", template_key)
+        return jsonify({"success": False, "error": "An internal error occurred while loading the template."}), 400
 
 
 @app.route("/api/validate", methods=["POST"])
