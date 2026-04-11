@@ -206,15 +206,33 @@ SigmaForge/
 
 ## Roadmap
 
-**v2 — Planned**
-- Wazuh XML emitter — output native Wazuh detection rules directly from Sigma YAML
-- pySigma integration — field remapping using the pySigma library for accurate field name translation across backends
-- CrowdStrike Falcon Query Language (FQL) backend
-- QRadar AQL backend
+## Roadmap
 
-**Future Considerations**
+### v2 — In Progress
+
+**Wazuh XML Backend (Phase 1 — Complete)**
+- Native Wazuh XML rule emitter added to `src/sigma_engine.py`
+- Logsource → decoder mapping (`_DECODER_PARENT` table)
+- MITRE ATT&CK tagging (`<mitre><id>` blocks)
+- Severity level mapping (Sigma → Wazuh rule level)
+- OR conditions → multiple `<rule>` elements
+- NOT conditions → `negate="yes"` on `<field>` elements
+- Validated end-to-end against live Wazuh 4.14.4 / Win11x01 agent (EventID 1102, T1070.001)
+
+**Wazuh XML Backend (Phase 2 — Planned)**
+- CLI wiring (`--backend wazuh` flag)
+- Flask UI wiring (Wazuh output tab)
+- `<if_sid>` parent map audit and remap per logsource/service
+- Decoder-scoped `WAZUH_FIELD_MAP` (Linux rules currently inherit Windows field names)
+- pySigma integration for accurate field name translation
+
+**Additional Backends (Planned)**
+- CrowdStrike Falcon Query Language (FQL)
+- QRadar AQL
+
+### Future Considerations
 - REST API mode for CI/CD and SOAR pipeline integration
-- Rule performance hints (flag unbounded content matches, missing fast_pattern)
+- Rule performance hints (unbounded content matches, missing fast_pattern)
 - Field mapping profiles (Windows default, MDE schema, Elastic ECS)
 - Carbon Black (CBQL) backend
 
