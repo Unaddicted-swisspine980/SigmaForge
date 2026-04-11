@@ -299,6 +299,33 @@ LOG_SOURCES = {
 
 
 # ─────────────────────────────────────────────
+# Wazuh Field Mapping
+# NOTE: <mitre> block with nested <id> elements requires Wazuh 4.2+.
+#       If running an older version, remove the <mitre> block from
+#       _wazuh_build_rule or the generated rules will fail to load.
+# ─────────────────────────────────────────────
+
+# Sigma/Sysmon field name → Wazuh win.eventdata.* decoder field name.
+# Fields NOT in this table are passed through as-is; _wazuh_build_rule
+# will emit an XML comment listing them so you can extend this table.
+WAZUH_FIELD_MAP = {
+    "CommandLine":       "win.eventdata.commandLine",
+    "Image":             "win.eventdata.image",
+    "ParentImage":       "win.eventdata.parentImage",
+    "ParentCommandLine": "win.eventdata.parentCommandLine",
+    "User":              "win.eventdata.user",
+    "TargetFilename":    "win.eventdata.targetFilename",
+    "ProcessId":         "win.eventdata.processId",
+    "ParentProcessId":   "win.eventdata.parentProcessId",
+    "OriginalFileName":  "win.eventdata.originalFileName",
+    "Hashes":            "win.eventdata.hashes",
+    "IntegrityLevel":    "win.eventdata.integrityLevel",
+    "LogonId":           "win.eventdata.logonId",
+    "CurrentDirectory":  "win.eventdata.currentDirectory",
+}
+
+
+# ─────────────────────────────────────────────
 # Pre-built Rule Templates
 # ─────────────────────────────────────────────
 
@@ -861,8 +888,12 @@ class SIEMConverter:
     """Converts Sigma rules to SIEM-specific query languages."""
 
     @staticmethod
-    def _build_field_query(field_name: str, values, backend: str) -> str:
-        """Build a query fragment for a single field with optional modifiers."""
+    def _build_field_query(field_name: str, values, backend: str, negate: bool = False) -> str:
+        """
+        Build a query fragment for a single field with optional modifiers.
+        The negate kwarg is wazuh-only: when True the emitted <field> element
+        carries negate="yes". It is ignored by all other backends.
+        """
         modifiers = []
         base_field = field_name
 
@@ -886,9 +917,18 @@ class SIEMConverter:
                 q = SIEMConverter._sentinel_field_value(base_field, val_str, modifiers)
             elif backend == "eql":
                 q = SIEMConverter._eql_field_value(base_field, val_str, modifiers)
+            elif backend == "wazuh":
+                q = SIEMConverter._wazuh_field_value(base_field, val_str, modifiers)
             else:
                 q = f'{base_field}="{val_str}"'
             queries.append(q)
+
+        # Wazuh: assemble a single <field> element; multi-value → regex alternation.
+        if backend == "wazuh":
+            wazuh_field = WAZUH_FIELD_MAP.get(base_field, base_field)
+            negate_attr = ' negate="yes"' if negate else ""
+            regex = "|".join(f"(?:{q})" for q in queries) if len(queries) > 1 else queries[0]
+            return f'<field name="{wazuh_field}"{negate_attr}>{regex}</field>'
 
         if len(queries) == 1:
             return queries[0]
@@ -956,6 +996,34 @@ class SIEMConverter:
             return f'{field} == "{value}"'
 
     @staticmethod
+    def _wazuh_field_value(field: str, value: str, modifiers: list) -> str:
+        """
+        Return a PCRE2 regex string for use inside a Wazuh <field> element.
+        The caller (_build_field_query) wraps this in the actual XML element.
+        For the 're' modifier the value is treated as a raw regex and passed
+        through unchanged; all other modifiers apply re.escape() first.
+        """
+        if "re" in modifiers:
+            regex = value
+        else:
+            regex = re.escape(value)
+
+        # Anchor behaviour: if 're' is combined with 'startswith'/'endswith',
+        # the anchor is still applied to the raw regex — intentional, not a bug.
+        if "contains" in modifiers:
+            pass                        # Wazuh <field> matches anywhere by default
+        elif "startswith" in modifiers:
+            regex = f"^{regex}"
+        elif "endswith" in modifiers:
+            regex = f"{regex}$"
+        elif "re" not in modifiers:
+            regex = f"^{regex}$"        # exact match — fully anchored
+
+        # XML-escape so the regex is safe inside an XML element value
+        regex = regex.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return regex
+
+    @staticmethod
     def _convert_selection(selection: dict, backend: str) -> str:
         """Convert a single selection (AND of field matches) to a query."""
         parts = []
@@ -966,6 +1034,274 @@ class SIEMConverter:
         if len(parts) == 1:
             return parts[0]
         return "(" + joiner.join(parts) + ")"
+
+    @staticmethod
+    def _wazuh_render_fields(selection: dict, negate: bool = False) -> str:
+        """
+        Render a Sigma selection dict as Wazuh <field> XML elements.
+        Each key/value pair becomes one <field name="...">regex</field> line.
+        When negate=True (for 'not filter' conditions) negate="yes" is emitted
+        directly on each <field> tag by _build_field_query.
+        Returns lines joined by bare newlines with no leading or trailing
+        whitespace. Caller is responsible for indenting each line to its
+        position inside the <rule> body.
+        """
+        if not selection:
+            raise ValueError(
+                "_wazuh_render_fields received an empty selection; "
+                "this indicates a bug in the calling rule-body assembler"
+            )
+        parts = []
+        for field_name, values in selection.items():
+            parts.append(
+                SIEMConverter._build_field_query(field_name, values, "wazuh", negate=negate)
+            )
+        return "\n".join(parts)
+
+    @staticmethod
+    def _wazuh_build_rule(
+        rule: dict,
+        rule_id: int = 100001,
+        group_name: str = "sigma_rules",
+    ) -> str:
+        """
+        Assemble a Wazuh XML rule group from a parsed Sigma rule dict.
+        OR conditions produce multiple <rule> elements (one per branch);
+        AND/NOT conditions produce a single <rule> with negated <field> elements.
+        Phase 1 supports flat AND/OR/NOT conditions only — parenthesised
+        sub-expressions (other than a single outer wrapper) raise NotImplementedError.
+        """
+
+        # ── Helpers ───────────────────────────────────────────────────────
+        def _unwrap(expr: str) -> str:
+            """Strip one matched pair of outer parens if present, else return as-is."""
+            expr = expr.strip()
+            if not (expr.startswith("(") and expr.endswith(")")):
+                return expr
+            depth = 0
+            for i, ch in enumerate(expr):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                if depth == 0:
+                    if i < len(expr) - 1:
+                        return expr   # outer parens close before end — not a wrapper
+                    return expr[1:-1].strip()
+            return expr
+
+        def _split_top(expr: str, operator: str) -> list:
+            """Split expr on operator keyword at paren depth 0."""
+            tokens, depth, current = [], 0, []
+            for w in expr.split():
+                depth += w.count("(") - w.count(")")
+                if w.lower() == operator and depth == 0:
+                    tokens.append(" ".join(current).strip())
+                    current = []
+                else:
+                    current.append(w)
+            if current:
+                tokens.append(" ".join(current).strip())
+            return [t for t in tokens if t]
+
+        # ── Severity mapping ──────────────────────────────────────────────
+        level_map = {
+            "informational": 3, "low": 5, "medium": 7,
+            "high": 10, "critical": 13,
+        }
+        sigma_level = rule.get("level", "medium")
+        wazuh_level = level_map.get(sigma_level, 7)
+
+        # ── Logsource → decoder + extra EventID field ─────────────────────
+        logsource = rule.get("logsource", {})
+        category = logsource.get("category", "")
+        product  = logsource.get("product", "")
+        service  = logsource.get("service", "")
+
+        _CATEGORY_MAP = {
+            "process_creation":   ("windows_eventchannel", "win.system.eventID", "^1$"),
+            "dns_query":          ("windows_eventchannel", "win.system.eventID", "^22$"),
+            "network_connection": ("windows_eventchannel", "win.system.eventID", "^3$"),
+            "file_event":         ("windows_eventchannel", "win.system.eventID", "^11$"),
+            "registry_set":       ("windows_eventchannel", "win.system.eventID", "^13$"),
+            "firewall":           ("firewall",             None, None),
+            "proxy":              ("web-accesslog",        None, None),
+        }
+        _SERVICE_MAP = {
+            ("windows", "security"):           ("windows_eventchannel", None, None),
+            ("windows", "sysmon"):             ("windows_eventchannel", None, None),
+            ("windows", "powershell"):         ("windows_eventchannel", None, None),
+            ("windows", "powershell-classic"): ("windows_eventchannel", None, None),
+            ("linux",   "auth"):               ("linux_auth",           None, None),
+            ("linux",   ""):                   ("linux_audit",          None, None),
+        }
+        # Parent tag/value derived here; <decoded_as> skip is derived from this
+        # table too — see below. Do not maintain a separate skip list.
+        _DECODER_PARENT = {
+            "windows_eventchannel": ("if_sid",   "60000"),
+            "linux_audit":          ("if_sid",   "80700"),
+            "linux_auth":           ("if_sid",   "5700"),
+            "web-accesslog":        ("if_group", "web,"),
+            "firewall":             ("if_group", "firewall,"),
+        }
+
+        entry = _CATEGORY_MAP.get(category) or _SERVICE_MAP.get((product, service))
+        if entry:
+            decoder, extra_field, extra_regex = entry
+        else:
+            decoder, extra_field, extra_regex = "ossec", None, None
+
+        # ── Collect unmapped field names across all selections ─────────────
+        detection = rule.get("detection", {})
+        unmapped = set()
+        for key, val in detection.items():
+            if key in ("condition", "timeframe") or not isinstance(val, dict):
+                continue
+            for fname in val:
+                base = fname.split("|")[0]
+                if base not in WAZUH_FIELD_MAP:
+                    unmapped.add(base)
+
+        # ── Extract MITRE technique IDs from tags ──────────────────────────
+        # Tags arrive as 'attack.t1059_001'; convert to 't1059.001' for <id>.
+        mitre_ids = []
+        for tag in rule.get("tags", []):
+            if re.match(r"^attack\.t\d", tag):
+                mitre_ids.append(tag[len("attack."):].replace("_", ".", 1))
+
+        # ── Build tactic group labels (dots → underscores, Wazuh convention) ─
+        tactic_tags = []
+        for tag in rule.get("tags", []):
+            if tag.startswith("attack.") and not re.match(r"^attack\.t\d", tag):
+                tactic_tags.append(tag.replace(".", "_"))
+
+        sigma_level_tag = f"sigma_{sigma_level}"
+
+        # ── Parse condition into OR branches ───────────────────────────────
+        condition = detection.get("condition", "selection")
+
+        # Strip a single outer wrapper, then guard against nested parens.
+        # Phase 1 supports flat AND/OR/NOT only.
+        condition_stripped = _unwrap(condition.strip())
+        if "(" in condition_stripped or ")" in condition_stripped:
+            raise NotImplementedError(
+                f"Wazuh backend (Phase 1) does not support parenthesised "
+                f"sub-expressions: {condition!r}. "
+                f"Rewrite as a flat AND/OR/NOT condition."
+            )
+
+        or_branches = _split_top(condition_stripped, "or")
+        branch_specs = []
+        for branch in or_branches:
+            branch = _unwrap(branch)
+            terms = _split_top(branch, "and")
+            positives, negatives, unknown = [], [], []
+            for term in terms:
+                term = _unwrap(term)
+                if term.lower().startswith("not "):
+                    name = term[4:].strip()
+                    sel = detection.get(name)
+                    if isinstance(sel, dict):
+                        negatives.append((name, sel))
+                    else:
+                        unknown.append(term)
+                else:
+                    sel = detection.get(term)
+                    if isinstance(sel, dict):
+                        positives.append((term, sel))
+                    else:
+                        unknown.append(term)
+            branch_specs.append({
+                "positives": positives,
+                "negatives": negatives,
+                "unknown":   unknown,
+            })
+
+        multi_branch = len(branch_specs) > 1
+
+        # ── Assemble XML ───────────────────────────────────────────────────
+        indent       = "    "    # 4-space indent inside <group>
+        field_indent = "        "  # 8-space indent for elements inside <rule>
+
+        lines = [f'<group name="{group_name}">']
+        lines.append(f"{indent}<!-- Generated by SigmaForge — Wazuh XML backend -->")
+        lines.append(f'{indent}<!-- Rule: {rule.get("title", "Untitled")} -->')
+        if unmapped:
+            lines.append(
+                f"{indent}<!-- WARNING: Unmapped field(s) used as-is: "
+                f"{', '.join(sorted(unmapped))} -->"
+            )
+            lines.append(
+                f"{indent}<!-- Extend WAZUH_FIELD_MAP in sigma_engine.py "
+                f"to map these to win.eventdata.* names -->"
+            )
+
+        par = _DECODER_PARENT.get(decoder)
+
+        for i, spec in enumerate(branch_specs):
+            # Guard: a branch with no positive or negative selections means
+            # the condition used unsupported syntax (1 of selection*, all of them, etc.)
+            if not spec["positives"] and not spec["negatives"]:
+                raise NotImplementedError(
+                    f"Wazuh backend: condition branch produced no field selections "
+                    f"from condition {condition!r}. Unsupported syntax — likely "
+                    f"'1 of selection*' or 'all of them'. Use explicit selection names."
+                )
+
+            rid = rule_id + i
+            label_parts = [n for n, _ in spec["positives"]]
+            description = rule.get("title", "Untitled")
+            if multi_branch:
+                description += f" - {'+'.join(label_parts)}"
+
+            lines.append("")
+            lines.append(f"{indent}<!-- TODO: assign unique rule ID before deployment -->")
+            lines.append(f'{indent}<rule id="{rid}" level="{wazuh_level}">')
+
+            # Parent reference — immediately after TODO comment, before <decoded_as>
+            if par:
+                par_tag, par_val = par
+                lines.append(f"{field_indent}<{par_tag}>{par_val}</{par_tag}>")
+
+            # <decoded_as> — skip when parent is <if_group> (derived from
+            # _DECODER_PARENT, not a hand-maintained list).
+            if par is None or par[0] != "if_group":
+                lines.append(f"{field_indent}<decoded_as>{decoder}</decoded_as>")
+
+            # Extra EventID filter (e.g. EventID=1 for process_creation)
+            if extra_field and extra_regex:
+                lines.append(f'{field_indent}<field name="{extra_field}">{extra_regex}</field>')
+
+            # Unresolved condition terms — emit as comments, nothing silently dropped
+            for u in spec["unknown"]:
+                lines.append(f"{field_indent}<!-- Unresolved condition term: {u} -->")
+
+            # Positive selections
+            for _name, sel in spec["positives"]:
+                for fline in SIEMConverter._wazuh_render_fields(sel, negate=False).split("\n"):
+                    lines.append(f"{field_indent}{fline}")
+
+            # Negative selections
+            for _name, sel in spec["negatives"]:
+                for fline in SIEMConverter._wazuh_render_fields(sel, negate=True).split("\n"):
+                    lines.append(f"{field_indent}{fline}")
+
+            lines.append(f"{field_indent}<description>{description}</description>")
+
+            if mitre_ids:
+                lines.append(f"{field_indent}<mitre>")
+                for mid in mitre_ids:
+                    lines.append(f"{field_indent}  <id>{mid}</id>")
+                lines.append(f"{field_indent}</mitre>")
+
+            group_tags = tactic_tags + [sigma_level_tag]
+            lines.append(f"{field_indent}<group>{','.join(group_tags)},</group>")
+
+            lines.append(f"{indent}</rule>")
+
+        lines.append("")
+        lines.append("</group>")
+        return "\n".join(lines)
 
     @staticmethod
     def convert(rule_yaml: str, backend: str) -> str:
