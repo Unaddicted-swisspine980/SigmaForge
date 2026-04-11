@@ -1304,12 +1304,25 @@ class SIEMConverter:
         return "\n".join(lines)
 
     @staticmethod
-    def convert(rule_yaml: str, backend: str) -> str:
+    def convert(rule_yaml: str, backend: str,
+                rule_id: int = 100001, group_name: str = "sigma_rules") -> str:
         """
         Convert a Sigma rule YAML string to a SIEM query.
-        Backends: 'splunk', 'elastic', 'eql', 'sentinel'
+        Backends: 'splunk', 'elastic', 'eql', 'sentinel', 'wazuh'
+        rule_id and group_name are wazuh-only kwargs (ignored by other backends).
         """
         rule = yaml.safe_load(rule_yaml)
+
+        if backend == "wazuh":
+            _condition = rule.get("detection", {}).get("condition", "")
+            if "|" in _condition:
+                raise NotImplementedError(
+                    f"Wazuh backend does not support aggregation conditions "
+                    f"(condition contains '|'): {_condition!r}. "
+                    f"Aggregation support is planned for a future phase."
+                )
+            return SIEMConverter._wazuh_build_rule(rule, rule_id=rule_id, group_name=group_name)
+
         detection = rule.get("detection", {})
         condition = detection.get("condition", "")
 
