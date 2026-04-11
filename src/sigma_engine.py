@@ -1145,7 +1145,22 @@ class SIEMConverter:
             "firewall":             ("if_group", "firewall,"),
         }
 
-        entry = _CATEGORY_MAP.get(category) or _SERVICE_MAP.get((product, service))
+        # Three-tier logsource resolution (when product is set):
+        #   1. Exact (product, service) match — most specific
+        #   2. (product, "") catch-all — covers services not individually mapped
+        #      (e.g. linux/auditd falls through to linux/"" → linux_audit)
+        #   3. _CATEGORY_MAP fallback — covers Windows category entries where
+        #      _SERVICE_MAP has no ("windows","") row
+        # Remaining gap: a product entirely absent from _SERVICE_MAP (e.g. macos)
+        # still falls to _CATEGORY_MAP — extend _SERVICE_MAP when adding new platforms.
+        if product:
+            entry = (
+                _SERVICE_MAP.get((product, service))
+                or _SERVICE_MAP.get((product, ""))
+                or _CATEGORY_MAP.get(category)
+            )
+        else:
+            entry = _CATEGORY_MAP.get(category)
         if entry:
             decoder, extra_field, extra_regex = entry
         else:
