@@ -16,3 +16,6 @@ rules/*.yaml
 
 # Test artifacts
 wazuh_test_rule.xml
+
+# Obsidian vault notes
+SIGMAFORGE_TECH_DEEP_DIVE.md
