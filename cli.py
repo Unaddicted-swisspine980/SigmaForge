@@ -161,8 +161,15 @@ def cmd_generate(args):
     for backend in backends:
         print_header(f"Conversion: {backend.upper()}")
         try:
-            query = SIEMConverter.convert(rule_yaml, backend)
-            print(f"  {Colors.WHITE}{query}{Colors.RESET}")
+            if backend == "wazuh":
+                output = SIEMConverter.convert(
+                    rule_yaml, backend,
+                    rule_id=args.rule_id, group_name=args.group_name,
+                )
+                print(output)
+            else:
+                query = SIEMConverter.convert(rule_yaml, backend)
+                print(f"  {Colors.WHITE}{query}{Colors.RESET}")
         except Exception as e:
             print_error(f"Conversion failed: {e}")
 
@@ -210,8 +217,15 @@ def cmd_convert(args):
     for backend in backends:
         print_header(f"Conversion: {backend.upper()}")
         try:
-            query = SIEMConverter.convert(rule_yaml, backend)
-            print(f"  {Colors.WHITE}{query}{Colors.RESET}")
+            if backend == "wazuh":
+                output = SIEMConverter.convert(
+                    rule_yaml, backend,
+                    rule_id=args.rule_id, group_name=args.group_name,
+                )
+                print(output)
+            else:
+                query = SIEMConverter.convert(rule_yaml, backend)
+                print(f"  {Colors.WHITE}{query}{Colors.RESET}")
         except Exception as e:
             print_error(f"Conversion failed: {e}")
 
@@ -303,7 +317,9 @@ def main():
     gen_parser.add_argument("--condition", "-c", help="Detection condition (default: selection)")
     gen_parser.add_argument("--mitre", "-m", help="MITRE ATT&CK technique IDs (comma-separated)")
     gen_parser.add_argument("--falsepositives", help="False positives (comma-separated)")
-    gen_parser.add_argument("--backend", "-b", choices=["splunk", "elastic", "eql", "sentinel"])
+    gen_parser.add_argument("--backend", "-b", choices=["splunk", "elastic", "eql", "sentinel", "wazuh"])
+    gen_parser.add_argument("--rule-id",    type=int, default=100001,      help="Wazuh rule ID (wazuh backend only)")
+    gen_parser.add_argument("--group-name", default="sigma_rules",         help="Wazuh group name (wazuh backend only)")
     gen_parser.add_argument("--output", "-o", help="Output file path (.yml)")
 
     # validate
@@ -313,7 +329,9 @@ def main():
     # convert
     conv_parser = subparsers.add_parser("convert", help="Convert a Sigma rule to SIEM query")
     conv_parser.add_argument("file", help="Path to Sigma rule YAML file")
-    conv_parser.add_argument("--backend", "-b", choices=["splunk", "elastic", "eql", "sentinel"])
+    conv_parser.add_argument("--backend", "-b", choices=["splunk", "elastic", "eql", "sentinel", "wazuh"])
+    conv_parser.add_argument("--rule-id",    type=int, default=100001,      help="Wazuh rule ID (wazuh backend only)")
+    conv_parser.add_argument("--group-name", default="sigma_rules",         help="Wazuh group name (wazuh backend only)")
 
     # template
     tmpl_parser = subparsers.add_parser("template", help="Generate rule from template")

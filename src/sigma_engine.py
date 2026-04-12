@@ -305,24 +305,86 @@ LOG_SOURCES = {
 #       _wazuh_build_rule or the generated rules will fail to load.
 # ─────────────────────────────────────────────
 
-# Sigma/Sysmon field name → Wazuh win.eventdata.* decoder field name.
-# Fields NOT in this table are passed through as-is; _wazuh_build_rule
-# will emit an XML comment listing them so you can extend this table.
-WAZUH_FIELD_MAP = {
-    "CommandLine":       "win.eventdata.commandLine",
-    "Image":             "win.eventdata.image",
-    "ParentImage":       "win.eventdata.parentImage",
-    "ParentCommandLine": "win.eventdata.parentCommandLine",
-    "User":              "win.eventdata.user",
-    "TargetFilename":    "win.eventdata.targetFilename",
-    "ProcessId":         "win.eventdata.processId",
-    "ParentProcessId":   "win.eventdata.parentProcessId",
-    "OriginalFileName":  "win.eventdata.originalFileName",
-    "Hashes":            "win.eventdata.hashes",
-    "IntegrityLevel":    "win.eventdata.integrityLevel",
-    "LogonId":           "win.eventdata.logonId",
-    "CurrentDirectory":  "win.eventdata.currentDirectory",
-    "EventID":           "win.system.eventID",
+# Decoder-scoped field maps: Sigma field name → Wazuh decoder field path.
+# Keyed by the same channel-specific strings used in _DECODER_PARENT.
+# Fields absent from the active sub-map are passed through as-is;
+# _wazuh_build_rule will emit an XML comment listing them.
+WAZUH_FIELD_MAP: dict[str, dict[str, str]] = {
+    # ── Windows Security channel ──────────────────────────────────────
+    "windows_security": {
+        "EventID":              "win.system.eventID",
+        "TargetUserName":       "win.eventdata.targetUserName",
+        "TargetDomainName":     "win.eventdata.targetDomainName",
+        "SubjectUserName":      "win.eventdata.subjectUserName",
+        "SubjectDomainName":    "win.eventdata.subjectDomainName",
+        "LogonType":            "win.eventdata.logonType",
+        "IpAddress":            "win.eventdata.ipAddress",
+        "IpPort":               "win.eventdata.ipPort",
+        "WorkstationName":      "win.eventdata.workstationName",
+        "Status":               "win.eventdata.status",
+        "SubStatus":            "win.eventdata.subStatus",
+        "ProcessName":          "win.eventdata.processName",
+        "ServiceName":          "win.eventdata.serviceName",
+        "TicketEncryptionType": "win.eventdata.ticketEncryptionType",
+        "TicketOptions":        "win.eventdata.ticketOptions",
+    },
+    # ── Windows Sysmon channel ────────────────────────────────────────
+    "windows_sysmon": {
+        "EventID":             "win.system.eventID",
+        "Image":               "win.eventdata.image",
+        "CommandLine":         "win.eventdata.commandLine",
+        "ParentImage":         "win.eventdata.parentImage",
+        "ParentCommandLine":   "win.eventdata.parentCommandLine",
+        "User":                "win.eventdata.user",
+        "TargetFilename":      "win.eventdata.targetFilename",
+        "ProcessId":           "win.eventdata.processId",
+        "ParentProcessId":     "win.eventdata.parentProcessId",
+        "OriginalFileName":    "win.eventdata.originalFileName",
+        "Hashes":              "win.eventdata.hashes",
+        "IntegrityLevel":      "win.eventdata.integrityLevel",
+        "LogonId":             "win.eventdata.logonId",
+        "CurrentDirectory":    "win.eventdata.currentDirectory",
+        "DestinationHostname": "win.eventdata.destinationHostname",
+        "DestinationIp":       "win.eventdata.destinationIp",
+        "DestinationPort":     "win.eventdata.destinationPort",
+        "SourceIp":            "win.eventdata.sourceIp",
+        "SourcePort":          "win.eventdata.sourcePort",
+        "Protocol":            "win.eventdata.protocol",
+        "QueryName":           "win.eventdata.queryName",
+        "QueryResults":        "win.eventdata.queryResults",
+        "TargetObject":        "win.eventdata.targetObject",
+        "Details":             "win.eventdata.details",
+        "SourceImage":         "win.eventdata.sourceImage",
+        "TargetImage":         "win.eventdata.targetImage",
+        "PipeName":            "win.eventdata.pipeName",
+        "CallTrace":           "win.eventdata.callTrace",
+    },
+    # ── Windows catch-all: PowerShell, System, unmapped services ──────
+    "windows_eventchannel": {
+        "EventID":         "win.system.eventID",
+        "CommandLine":     "win.eventdata.commandLine",
+        "User":            "win.eventdata.user",
+        "ProcessId":       "win.eventdata.processId",
+        "ScriptBlockText": "win.eventdata.scriptBlockText",
+    },
+    # ── Linux auth (/var/log/auth.log) ────────────────────────────────
+    "linux_auth": {
+        "User":     "data.dstuser",
+        "SourceIP": "data.srcip",
+        "Method":   "data.protocol",
+    },
+    # ── Linux auditd ──────────────────────────────────────────────────
+    "linux_audit": {
+        "User":        "data.auid",
+        "Image":       "data.audit.execve.a0",
+        "CommandLine": "data.audit.execve.a1",
+        "SourceIP":    "data.srcip",
+    },
+    # ── Linux syslog ─────────────────────────────────────────────────
+    "linux_syslog": {
+        "User":     "data.dstuser",
+        "SourceIP": "data.srcip",
+    },
 }
 
 
@@ -889,11 +951,19 @@ class SIEMConverter:
     """Converts Sigma rules to SIEM-specific query languages."""
 
     @staticmethod
-    def _build_field_query(field_name: str, values, backend: str, negate: bool = False) -> str:
+    def _build_field_query(
+        field_name: str,
+        values,
+        backend: str,
+        negate: bool = False,
+        field_map: Optional[dict] = None,
+    ) -> str:
         """
         Build a query fragment for a single field with optional modifiers.
         The negate kwarg is wazuh-only: when True the emitted <field> element
         carries negate="yes". It is ignored by all other backends.
+        field_map is wazuh-only: the decoder-scoped sub-dict from WAZUH_FIELD_MAP
+        resolved by _wazuh_build_rule. When None, field names are passed through as-is.
         """
         modifiers = []
         base_field = field_name
@@ -926,7 +996,8 @@ class SIEMConverter:
 
         # Wazuh: assemble a single <field> element; multi-value → regex alternation.
         if backend == "wazuh":
-            wazuh_field = WAZUH_FIELD_MAP.get(base_field, base_field)
+            _map = field_map if field_map is not None else {}
+            wazuh_field = _map.get(base_field, base_field)
             negate_attr = ' negate="yes"' if negate else ""
             regex = "|".join(f"(?:{q})" for q in queries) if len(queries) > 1 else queries[0]
             return f'<field name="{wazuh_field}"{negate_attr}>{regex}</field>'
@@ -1037,12 +1108,18 @@ class SIEMConverter:
         return "(" + joiner.join(parts) + ")"
 
     @staticmethod
-    def _wazuh_render_fields(selection: dict, negate: bool = False) -> str:
+    def _wazuh_render_fields(
+        selection: dict,
+        negate: bool = False,
+        field_map: Optional[dict] = None,
+    ) -> str:
         """
         Render a Sigma selection dict as Wazuh <field> XML elements.
         Each key/value pair becomes one <field name="...">regex</field> line.
         When negate=True (for 'not filter' conditions) negate="yes" is emitted
         directly on each <field> tag by _build_field_query.
+        field_map is the decoder-scoped sub-dict from WAZUH_FIELD_MAP, resolved
+        by _wazuh_build_rule and passed straight through to _build_field_query.
         Returns lines joined by bare newlines with no leading or trailing
         whitespace. Caller is responsible for indenting each line to its
         position inside the <rule> body.
@@ -1055,7 +1132,9 @@ class SIEMConverter:
         parts = []
         for field_name, values in selection.items():
             parts.append(
-                SIEMConverter._build_field_query(field_name, values, "wazuh", negate=negate)
+                SIEMConverter._build_field_query(
+                    field_name, values, "wazuh", negate=negate, field_map=field_map
+                )
             )
         return "\n".join(parts)
 
@@ -1129,21 +1208,32 @@ class SIEMConverter:
             "proxy":              ("web-accesslog",        None, None),
         }
         _SERVICE_MAP = {
-            ("windows", "security"):           ("windows_eventchannel", None, None),
-            ("windows", "sysmon"):             ("windows_eventchannel", None, None),
-            ("windows", "powershell"):         ("windows_eventchannel", None, None),
-            ("windows", "powershell-classic"): ("windows_eventchannel", None, None),
-            ("linux",   "auth"):               ("linux_auth",           None, None),
-            ("linux",   ""):                   ("linux_audit",          None, None),
+            ("windows", "security"):           ("windows_security",      None, None),
+            ("windows", "sysmon"):             ("windows_sysmon",         None, None),
+            ("windows", "system"):             ("windows_system",         None, None),
+            ("windows", "powershell"):         ("windows_eventchannel",   None, None),
+            ("windows", "powershell-classic"): ("windows_eventchannel",   None, None),
+            ("linux",   "auth"):               ("linux_auth",             None, None),
+            ("linux",   "syslog"):             ("linux_syslog",           None, None),
+            ("linux",   ""):                   ("linux_audit",            None, None),
         }
+        # Each entry: (par_tag, par_val, decoded_as_override)
+        # decoded_as_override=None  →  use the decoder key itself as <decoded_as>.
+        # All Windows channel variants share the windows_eventchannel decoder but
+        # have distinct parent SIDs so Wazuh routes alerts to the right sub-ruleset.
         # Parent tag/value derived here; <decoded_as> skip is derived from this
         # table too — see below. Do not maintain a separate skip list.
         _DECODER_PARENT = {
-            "windows_eventchannel": ("if_sid",   "60000"),
-            "linux_audit":          ("if_sid",   "80700"),
-            "linux_auth":           ("if_sid",   "5700"),
-            "web-accesslog":        ("if_group", "web,"),
-            "firewall":             ("if_group", "firewall,"),
+            # key                     par_tag    par_val   decoded_as_override
+            "windows_security":    ("if_sid",   "63108",  "windows_eventchannel"),
+            "windows_sysmon":      ("if_sid",   "61600",  "windows_eventchannel"),
+            "windows_system":      ("if_sid",   "60010",  "windows_eventchannel"),
+            "windows_eventchannel":("if_sid",   "60000",  None),
+            "linux_audit":         ("if_sid",   "80700",  None),
+            "linux_auth":          ("if_sid",    "5700",  None),
+            "linux_syslog":        ("if_sid",    "1002",  "syslog"),
+            "web-accesslog":       ("if_group",  "web,",  None),
+            "firewall":            ("if_group",  "firewall,", None),
         }
 
         # Three-tier logsource resolution (when product is set):
@@ -1167,6 +1257,12 @@ class SIEMConverter:
         else:
             decoder, extra_field, extra_regex = "ossec", None, None
 
+        # ── Resolve decoder-scoped field map ──────────────────────────────
+        # Falls back to windows_eventchannel if decoder key is absent (e.g. "ossec").
+        active_field_map: dict = WAZUH_FIELD_MAP.get(
+            decoder, WAZUH_FIELD_MAP.get("windows_eventchannel", {})
+        )
+
         # ── Collect unmapped field names across all selections ─────────────
         detection = rule.get("detection", {})
         unmapped = set()
@@ -1175,7 +1271,7 @@ class SIEMConverter:
                 continue
             for fname in val:
                 base = fname.split("|")[0]
-                if base not in WAZUH_FIELD_MAP:
+                if base not in active_field_map:
                     unmapped.add(base)
 
         # ── Extract MITRE technique IDs from tags ──────────────────────────
@@ -1248,11 +1344,17 @@ class SIEMConverter:
                 f"{', '.join(sorted(unmapped))} -->"
             )
             lines.append(
-                f"{indent}<!-- Extend WAZUH_FIELD_MAP in sigma_engine.py "
-                f"to map these to win.eventdata.* names -->"
+                f"{indent}<!-- Extend the '{decoder}' sub-dict of WAZUH_FIELD_MAP "
+                f"in sigma_engine.py to map these fields -->"
             )
 
         par = _DECODER_PARENT.get(decoder)
+        if par:
+            par_tag, par_val, decoded_as_override = par
+            effective_decoded_as = decoded_as_override or decoder
+        else:
+            par_tag = par_val = None
+            effective_decoded_as = decoder   # "ossec" fallback
 
         for i, spec in enumerate(branch_specs):
             # Guard: a branch with no positive or negative selections means
@@ -1275,14 +1377,13 @@ class SIEMConverter:
             lines.append(f'{indent}<rule id="{rid}" level="{wazuh_level}">')
 
             # Parent reference — immediately after TODO comment, before <decoded_as>
-            if par:
-                par_tag, par_val = par
+            if par_tag and par_val:
                 lines.append(f"{field_indent}<{par_tag}>{par_val}</{par_tag}>")
 
             # <decoded_as> — skip when parent is <if_group> (derived from
             # _DECODER_PARENT, not a hand-maintained list).
-            if par is None or par[0] != "if_group":
-                lines.append(f"{field_indent}<decoded_as>{decoder}</decoded_as>")
+            if par_tag != "if_group":
+                lines.append(f"{field_indent}<decoded_as>{effective_decoded_as}</decoded_as>")
 
             # Extra EventID filter (e.g. EventID=1 for process_creation)
             if extra_field and extra_regex:
@@ -1294,12 +1395,16 @@ class SIEMConverter:
 
             # Positive selections
             for _name, sel in spec["positives"]:
-                for fline in SIEMConverter._wazuh_render_fields(sel, negate=False).split("\n"):
+                for fline in SIEMConverter._wazuh_render_fields(
+                    sel, negate=False, field_map=active_field_map
+                ).split("\n"):
                     lines.append(f"{field_indent}{fline}")
 
             # Negative selections
             for _name, sel in spec["negatives"]:
-                for fline in SIEMConverter._wazuh_render_fields(sel, negate=True).split("\n"):
+                for fline in SIEMConverter._wazuh_render_fields(
+                    sel, negate=True, field_map=active_field_map
+                ).split("\n"):
                     lines.append(f"{field_indent}{fline}")
 
             lines.append(f"{field_indent}<description>{description}</description>")
