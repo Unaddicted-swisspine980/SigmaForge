@@ -252,7 +252,7 @@ SigmaForge/
 - Rule performance hints (unbounded content matches, missing fast_pattern)
 - Field mapping profiles (Windows default, MDE schema, Elastic ECS)
 - Carbon Black (CBQL) backend
-- Field normalization layer: Sigma → canonical schema → backend mapping (prerequisite for scaling additional backends; evaluate pySigma integration)
+- Field normalization layer: Sigma → canonical schema → backend mapping (prerequisite for scaling additional backends; pySigma has no native Wazuh backend — custom canonical schema is the path forward, not pySigma integration)
 
 
 ## License
