@@ -13,3 +13,6 @@ build/
 rules/*.yml
 rules/*.yaml
 !rules/.gitkeep
+
+# Test artifacts
+wazuh_test_rule.xml
