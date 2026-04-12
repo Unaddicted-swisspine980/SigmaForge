@@ -49,6 +49,35 @@ SigmaForge is a detection rule authoring tool that generates, validates, and con
 
 ---
 
+## Screenshots
+
+### Rule Builder
+*Build Sigma rules visually with MITRE ATT&CK mapping and detection logic*
+
+![Rule Builder](screenshots/SigmaForge_Rule_Builder.png)
+
+### Generated Output
+*YAML output with Splunk SPL, Elastic KQL, EQL, Sentinel KQL, Wazuh XML, QRadar AQL, and DaC JSON conversions*
+
+![Generated Output](screenshots/SigmaForge_Generated_output.png)
+
+### Templates
+*12 pre-built detection templates covering common attack techniques*
+
+![Templates](screenshots/SigmaForge_Templates.png)
+
+### Validator
+*Paste any Sigma YAML for syntax checking and SIEM conversion*
+
+![Validator](screenshots/SigmaForge_Validator.png)
+
+### Rule Library
+*Save, load, export, and manage generated rules*
+
+![Rule Library](screenshots/SigmaForge_Rule_Library.png)
+
+---
+
 ## SOC Use Case
 
 A SOC analyst encounters an alert they want to turn into a persistent detection. The workflow in SigmaForge:
