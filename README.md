@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔷 SigmaForge
+# SigmaForge
 
 ### Vendor-Agnostic Sigma Rule Generator
 
@@ -9,100 +9,175 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Sigma](https://img.shields.io/badge/Sigma-Detection--as--Code-06b6d4?style=flat-square)](https://sigmahq.io)
 
-A detection engineering tool for generating, validating, and converting Sigma rules to multiple SIEM query languages. Build vendor-agnostic detection rules with MITRE ATT&CK mapping and convert to **Splunk SPL**, **Elastic KQL**, **Elastic EQL**, **Sentinel KQL**, **Wazuh XML**, **QRadar AQL**, and **Detection-as-Code JSON**.
-
-[Features](#features) · [Screenshots](#screenshots) · [Quick Start](#quick-start) · [CLI Usage](#cli-usage) · [Web UI](#web-ui) · [Templates](#pre-built-templates)
-
 </div>
 
+---
 
 ## Overview
 
-SigmaForge streamlines the detection rule authoring process by providing both a **dark-themed web interface** and a **CLI tool** for creating Sigma rules — the industry standard for vendor-agnostic SIEM detection. Write once, convert to any SIEM.
+SigmaForge is a detection rule authoring tool that generates, validates, and converts Sigma rules to six SIEM query languages plus Detection-as-Code JSON. It ships as a Flask web UI and a standalone CLI. The conversion engine is custom-built — there is no pySigma dependency, which means the Wazuh XML backend produces valid XML out of the box (pySigma has no native Wazuh backend).
 
-Part of the **Detection Engineering Toolkit** alongside [YaraForge](https://github.com/Rootless-Ghost/YaraForge) (YARA rules) and [SnortForge](https://github.com/Rootless-Ghost/SnortForge) (Snort IDS rules).
+**Backends** (`SIEMConverter.convert`):
 
-## Screenshots
+| Backend key | Output format |
+|-------------|---------------|
+| `splunk` | Splunk SPL with index/sourcetype prefix |
+| `elastic` | Elastic Lucene KQL |
+| `eql` | Elastic EQL |
+| `sentinel` | Microsoft Sentinel KQL |
+| `wazuh` | Wazuh XML `<group>` / `<rule>` block |
+| `qradar` | QRadar AQL (`SELECT * FROM events … LAST 24 HOURS`) |
+| `dac_json` | Detection-as-Code normalized JSON |
 
-### Rule Builder
-*Build Sigma rules visually with MITRE ATT&CK mapping and detection logic*
+**Log sources** (`LOG_SOURCES`):
 
-![Rule Builder](screenshots/SigmaForge_Rule_Builder.png)
+| Key | Description |
+|-----|-------------|
+| `process_creation` | Process Creation — Sysmon EID 1 / Security EID 4688 |
+| `windows_security` | Windows Security Event Log |
+| `sysmon` | Sysmon Operational Log (all event types) |
+| `powershell` | PowerShell Script Block / Module Logging |
+| `powershell_classic` | Windows PowerShell (Classic) Event Log |
+| `dns_query` | DNS Query Events — Sysmon EID 22 |
+| `network_connection` | Network Connection Events — Sysmon EID 3 |
+| `file_event` | File Creation / Modification Events — Sysmon EID 11 |
+| `registry_event` | Registry Value Set Events — Sysmon EID 13 |
+| `firewall` | Firewall logs (vendor-agnostic) |
+| `proxy` | Web proxy / HTTP logs |
+| `linux_process` | Linux Process Creation (auditd / sysmon-linux) |
+| `linux_auth` | Linux Authentication Logs (`/var/log/auth.log`) |
 
-### Generated Output
-*YAML output with Splunk SPL, Elastic KQL, EQL, Sentinel KQL, Wazuh XML, QRadar AQL, and DaC JSON conversions*
+---
 
-![Generated Output](screenshots/SigmaForge_Generated_output.png)
+## SOC Use Case
 
-### Templates
-*12 pre-built detection templates covering common attack techniques*
+A SOC analyst encounters an alert they want to turn into a persistent detection. The workflow in SigmaForge:
 
-![Templates](screenshots/SigmaForge_Templates.png)
+**Scenario: Analyst sees Mimikatz-related activity in EDR telemetry**
 
-### Validator
-*Paste any Sigma YAML for syntax checking and SIEM conversion*
+1. Open the web UI Rule Builder or run the CLI `generate` command.
+2. Set `logsource: process_creation`, level `critical`, MITRE technique `T1003.001`.
+3. Add detection fields: `Image|endswith=\mimikatz.exe` and `CommandLine|contains=sekurlsa::logonpasswords`.
+4. Click Generate — the rule produces valid Sigma YAML and simultaneous output for all six backends.
+5. Copy the **Wazuh XML** tab output and drop it into `ossec.conf` or the Wazuh rules directory — the XML is ready to load, no post-processing.
+6. Copy the **Splunk SPL** output and save it as a saved search or correlation rule in the SIEM.
+7. Save the rule to the library via `POST /api/library/save`. It persists as a `.yml` file under `rules/`.
 
-![Validator](screenshots/SigmaForge_Validator.png)
+**Scenario: Analyst wants to hunt from a template**
 
-### Rule Library
-*Save, load, export, and manage generated rules*
+```bash
+python cli.py template suspicious_powershell
+```
 
-![Rule Library](screenshots/SigmaForge_Rule_Library.png)
+This prints the Sigma YAML and Splunk/Elastic/EQL/Sentinel conversions for a pre-built PowerShell detection (encoded commands, download cradles, AMSI bypass — all in one rule with three OR'd selection groups).
 
-## Features
+**Scenario: Analyst receives a Sigma rule from the community and needs to push it to Wazuh**
 
-- **Sigma Rule Generator** — Visual rule builder with detection logic, field modifiers, and boolean conditions
-- **SIEM Conversion** — Convert rules to Splunk SPL, Elastic/Lucene KQL, Elastic EQL, Microsoft Sentinel KQL, Wazuh XML, QRadar AQL, and Detection-as-Code JSON
-- **MITRE ATT&CK Mapping** — Auto-tag rules with technique IDs and tactics (120+ techniques)
-- **Rule Validator** — Syntax checking against the Sigma specification
-- **Pre-built Templates** — 12 ready-to-use detection templates for common threats
-- **Rule Library** — Save, load, export, and manage generated rules
-- **CLI Interface** — Generate, validate, and convert rules from the command line
-- **13 Log Sources** — Process creation, Windows Security, Sysmon, PowerShell, DNS, firewall, proxy, registry, network connections, file events, and Linux
+```bash
+python cli.py validate community_rule.yml
+python cli.py convert community_rule.yml --backend wazuh --rule-id 100500 --group-name sigma_rules
+```
+
+`SigmaValidator.validate()` checks required fields (`title`, `logsource`, `detection`), level/status values, field modifiers, and condition references before conversion.
+
+---
+
+## Architecture
+
+```
+SigmaForge/
+├── app.py              # Flask web application and REST API
+├── cli.py              # CLI — six subcommands
+├── src/
+│   └── sigma_engine.py # Core engine (3,000+ lines)
+└── templates/
+    └── index.html      # Single-page web UI (four tabs)
+```
+
+### Core classes (`src/sigma_engine.py`)
+
+**`SigmaRule` (dataclass)**
+Represents a complete Sigma detection rule. Key fields: `title`, `description`, `log_source_key`, `detection` (dict), `level`, `status`, `author`, `mitre_techniques`, `falsepositives`, `rule_id` (auto-UUID), `date` (auto-today).
+
+Methods:
+- `to_yaml()` — serializes to Sigma-spec YAML via `yaml.dump`
+- `to_dict()` — serializes to JSON-safe dict
+- `get_logsource()` — resolves `log_source_key` to a `logsource` block
+- `get_mitre_tags()` — generates `attack.<tactic>` and `attack.tXXXX` tag list
+
+**`SigmaValidator` (static)**
+- `validate(rule_yaml: str) → dict` — returns `{"valid": bool, "errors": [], "warnings": []}`
+- Required fields: `title`, `logsource`, `detection`
+- Valid levels: `informational`, `low`, `medium`, `high`, `critical`
+- Valid statuses: `stable`, `test`, `experimental`, `deprecated`, `unsupported`
+- Valid field modifiers: `contains`, `startswith`, `endswith`, `base64`, `base64offset`, `utf16le`, `utf16be`, `wide`, `re`, `cidr`, `all`, `gt`, `gte`, `lt`, `lte`, `fieldref`, `expand`, `windash`
+
+**`SIEMConverter` (static)**
+- `convert(rule_yaml, backend, rule_id=100001, group_name="sigma_rules") → str`
+- `_build_field_query(field_name, values, backend, negate, field_map)` — translates a single field with modifiers to the backend's syntax
+- `_parse_condition(condition, selections, backend)` — resolves selection references, handles boolean operators and aggregation conditions (`count() by field > N`)
+- `_build_aggregation(base_query, count_field, group_field, operator, threshold, backend)` — generates `stats`/`summarize`/aggregation syntax per backend
+- `_get_source_prefix(logsource, backend)` — emits index/sourcetype/category prefix per backend
+
+**Wazuh backend specifics:**
+- `WAZUH_FIELD_MAP` — decoder-scoped field maps: `windows_security`, `windows_sysmon`, `windows_eventchannel`, `linux_auth`, `linux_audit`, `linux_syslog`
+- Emits `<group>` → `<rule>` → `<field>` elements; OR conditions produce multiple `<rule>` siblings; NOT conditions produce `negate="yes"` on `<field>`
+- `<mitre><id>` block requires Wazuh 4.2+
+- Aggregation conditions (conditions containing `|`) raise `NotImplementedError` — Wazuh does not support them natively
+- `rule_id` clamped to `1–999,999`; `group_name` validated against `^[A-Za-z0-9._-]{1,64}$`
+
+**Helper functions:**
+- `build_rule_from_form(data: dict) → SigmaRule` — builds a `SigmaRule` from web form/API JSON
+- `build_rule_from_template(template_key: str) → SigmaRule` — instantiates a `SigmaRule` from `RULE_TEMPLATES`
+
+### Flask routes (`app.py`)
+
+| Method | Endpoint | Function |
+|--------|----------|----------|
+| GET | `/` | `index()` — serves `index.html` |
+| POST | `/api/generate` | `api_generate()` — build + validate + convert all backends |
+| GET | `/api/template/<key>` | `api_template()` — load pre-built template |
+| POST | `/api/validate` | `api_validate()` — validate YAML only |
+| POST | `/api/convert` | `api_convert()` — convert to one backend |
+| POST | `/api/library/save` | `api_save_rule()` — write `.yml` to `rules/` |
+| GET | `/api/library/list` | `api_list_rules()` — list `rules/` |
+| GET | `/api/library/load/<file>` | `api_load_rule()` — load and convert |
+| DELETE | `/api/library/delete/<file>` | `api_delete_rule()` — delete from `rules/` |
+| GET | `/api/library/export` | `api_export_library()` — JSON bundle of all rules |
+| GET | `/api/log-sources` | `api_log_sources()` — return `LOG_SOURCES` |
+| GET | `/api/mitre` | `api_mitre()` — return `MITRE_ATTACK_MAP` + `TACTIC_IDS` |
+| GET | `/api/templates` | `api_templates()` — return `RULE_TEMPLATES` summary |
+
+Request bodies are capped at 50 KB (`_MAX_RULE_YAML_BYTES`). File paths under `rules/` are sanitized via `secure_filename` and checked against path traversal before read/write.
+
+### Web UI (`templates/index.html`)
+
+Single-page app with four tabs: **Rule Builder**, **Templates**, **Validator**, **Rule Library**. All backend output tabs (Splunk SPL, Elastic KQL, Elastic EQL, Sentinel KQL, Wazuh XML, QRadar AQL, DaC JSON) render in the same page on generate.
+
+---
 
 ## Quick Start
 
+### Web UI
+
 ```bash
-# Clone the repository
 git clone https://github.com/Rootless-Ghost/SigmaForge.git
 cd SigmaForge
-
-# Create virtual environment
 python -m venv venv
 source venv/bin/activate        # Linux/Mac
 venv\Scripts\activate           # Windows
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the web interface
 python app.py
 # Open http://localhost:5000
 ```
 
-## Deployment
+> **Note:** Flask binds to `0.0.0.0:5000` by default. For strictly local use, change `host="0.0.0.0"` to `host="127.0.0.1"` in `app.py`. Do not expose on a shared network without adding authentication — the library endpoints read and write files on disk.
 
-SigmaForge is designed for **local use** by individual analysts and detection engineers. By default the Flask development server binds to `0.0.0.0:5000` with no authentication.
+### CLI
 
-**Do not expose SigmaForge on a public or shared network interface without adding authentication first.** If you need to make it accessible beyond localhost, place it behind a reverse proxy (e.g. nginx, Caddy) with HTTP Basic Auth or SSO, or restrict access via VPN/firewall ACL. The rule library endpoint allows reading and writing files on disk — treat it accordingly.
-
-For strictly local use, consider changing the bind address in `app.py` to `127.0.0.1`:
-
-```python
-app.run(debug=debug_mode, host="127.0.0.1", port=5000)
-```
-
-## CLI Usage
+**`generate`** — build a rule from arguments
 
 ```bash
-# List available templates
-python cli.py templates
-
-# Generate from template
-python cli.py template suspicious_powershell
-python cli.py template mimikatz_execution --output mimikatz.yml
-
-# Generate custom rule
 python cli.py generate \
     --title "Suspicious CMD Execution" \
     --logsource process_creation \
@@ -110,158 +185,174 @@ python cli.py generate \
     --field "Image|endswith=\\cmd.exe" \
     --field "ParentImage|endswith=\\excel.exe,\\winword.exe" \
     --mitre T1059.003 \
+    --backend splunk \
     --output suspicious_cmd.yml
+```
 
-# Validate a rule
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--title` | `-t` | Rule title |
+| `--description` | `-d` | Rule description |
+| `--logsource` | `-l` | Log source key (e.g. `process_creation`) |
+| `--level` | | `informational` / `low` / `medium` / `high` / `critical` |
+| `--status` | | `experimental` / `test` / `stable` |
+| `--author` | | Rule author |
+| `--field` | `-f` | Detection field — format `field\|modifier=value`; repeatable |
+| `--condition` | `-c` | Detection condition (default: `selection`) |
+| `--mitre` | `-m` | Comma-separated MITRE technique IDs |
+| `--falsepositives` | | Comma-separated false positive descriptions |
+| `--backend` | `-b` | `splunk` / `elastic` / `eql` / `sentinel` / `wazuh` / `qradar` / `dac_json` |
+| `--rule-id` | | Wazuh rule ID (integer, default `100001`) |
+| `--group-name` | | Wazuh group name (default `sigma_rules`) |
+| `--output` | `-o` | Output file path (`.yml`) |
+
+**`validate`** — check a Sigma YAML file
+
+```bash
 python cli.py validate my_rule.yml
+```
 
-# Convert to specific SIEM
-python cli.py convert my_rule.yml --backend splunk
-python cli.py convert my_rule.yml --backend elastic
-python cli.py convert my_rule.yml --backend eql
-python cli.py convert my_rule.yml --backend sentinel
+**`convert`** — convert an existing rule file to a target backend
+
+```bash
 python cli.py convert my_rule.yml --backend wazuh --rule-id 100200 --group-name sigma_rules
 python cli.py convert my_rule.yml --backend qradar
 python cli.py convert my_rule.yml --backend dac_json
+```
 
-# List available log sources
+**`template`** — generate from a pre-built template
+
+```bash
+python cli.py template suspicious_powershell
+python cli.py template mimikatz_execution --output mimikatz.yml
+```
+
+**`templates`** — list all available templates with level and technique IDs
+
+```bash
+python cli.py templates
+```
+
+**`logsources`** — list all available log source keys and their fields
+
+```bash
 python cli.py logsources
 ```
 
-## Web UI
+---
 
-The Flask-based web interface provides four main sections:
+## MITRE ATT&CK Coverage
 
-- **Rule Builder** — Visual form with metadata, MITRE ATT&CK selector, detection logic builder, and live output with SIEM conversion tabs (Splunk SPL, Elastic KQL, Elastic EQL, Sentinel KQL, Wazuh XML, QRadar AQL, DaC JSON)
-- **Templates** — Browse and load 12 pre-built detection templates covering common attack techniques
-- **Validator** — Paste any Sigma YAML and validate against the specification, then convert to SIEM queries
-- **Rule Library** — Save generated rules, load them back, export as JSON bundle
+`MITRE_ATTACK_MAP` in `sigma_engine.py` covers 110+ technique and sub-technique IDs across 13 tactics. `TACTIC_IDS` maps each tactic name to its TA number.
 
-## Pre-built Templates
+### Tactic coverage
 
-| Template | Level | MITRE ATT&CK | Description |
-|----------|-------|---------------|-------------|
-| Suspicious PowerShell | High | T1059.001 | Encoded commands, download cradles, AMSI bypass |
-| Mimikatz Execution | Critical | T1003.001 | Credential dumping via Mimikatz |
-| Scheduled Task Persistence | Medium | T1053.005 | Suspicious scheduled task creation |
-| Brute Force Detection | Medium | T1110 | Multiple failed logon attempts |
-| Event Log Clearing | High | T1070.001 | Windows event log cleared |
-| Suspicious DNS Query | Medium | T1071.004 | Queries to known malicious TLDs |
-| LOLBin Execution | Medium | T1218 | Certutil, mshta, rundll32, regsvr32 abuse |
-| Port Scan Detection | Medium | T1046 | High volume denied firewall connections |
-| Suspicious User Agent | Medium | T1071.001 | Known tool/malware user agents in proxy |
-| Registry Persistence | Medium | T1547.001 | Run key modification |
-| Non-Standard Port Connection | Low | T1095 | Outbound connections to suspicious ports |
-| Linux Reverse Shell | Critical | T1059.004 | Bash, netcat, Python reverse shell patterns |
+| Tactic | TA ID | Example techniques in map |
+|--------|-------|--------------------------|
+| Reconnaissance | TA0043 | T1595, T1592, T1589 |
+| Initial Access | TA0001 | T1566, T1190, T1133, T1078, T1195 |
+| Execution | TA0002 | T1059 (and .001–.007), T1053, T1047, T1203, T1569 |
+| Persistence | TA0003 | T1547, T1136, T1543, T1505, T1098 |
+| Privilege Escalation | TA0004 | T1055, T1068, T1548 |
+| Defense Evasion | TA0005 | T1562, T1070, T1027, T1036, T1218, T1112, T1140, T1564 |
+| Credential Access | TA0006 | T1003 (and .001–.003), T1110, T1555, T1558, T1552 |
+| Discovery | TA0007 | T1087, T1082, T1083, T1057, T1018, T1046, T1135 |
+| Lateral Movement | TA0008 | T1021 (and .001–.004, .006), T1570 |
+| Collection | TA0009 | T1005, T1560, T1074, T1113, T1115, T1119 |
+| Command & Control | TA0011 | T1071, T1105, T1090, T1572, T1573, T1095, T1219 |
+| Exfiltration | TA0010 | T1041, T1048, T1567, T1537 |
+| Impact | TA0040 | T1486, T1485, T1489, T1490, T1491, T1498, T1529 |
 
-## Supported Log Sources
+Tags are generated by `SigmaRule.get_mitre_tags()` in Sigma format: `attack.<tactic>` and `attack.tXXXX_XXX`. When a rule is converted to Wazuh XML, technique IDs are emitted as `<mitre><id>T####</id></mitre>` inside the `<rule>` block.
 
-| Key | Description | Product |
-|-----|-------------|---------|
-| `process_creation` | Process Creation (Sysmon EID 1 / Security 4688) | Windows |
-| `windows_security` | Windows Security Event Log | Windows |
-| `sysmon` | Sysmon Operational Log | Windows |
-| `powershell` | PowerShell Script Block / Module Logging | Windows |
-| `powershell_classic` | Windows PowerShell (Classic) | Windows |
-| `dns_query` | DNS Query Events (Sysmon EID 22) | Windows |
-| `network_connection` | Network Connection (Sysmon EID 3) | Windows |
-| `file_event` | File Creation/Modification (Sysmon EID 11) | Windows |
-| `registry_event` | Registry Value Set (Sysmon EID 13) | Windows |
-| `firewall` | Firewall logs (vendor-agnostic) | Any |
-| `proxy` | Web proxy / HTTP logs | Any |
-| `linux_process` | Linux Process Creation (auditd) | Linux |
-| `linux_auth` | Linux Authentication Logs | Linux |
+### Pre-built templates and their technique mappings
+
+| Template key | Name | Level | Technique |
+|---|---|---|---|
+| `suspicious_powershell` | Suspicious PowerShell Execution | high | T1059.001 |
+| `mimikatz_execution` | Mimikatz Credential Dumping | critical | T1003.001 |
+| `suspicious_scheduled_task` | Suspicious Scheduled Task Creation | medium | T1053.005 |
+| `windows_logon_brute_force` | Multiple Failed Logon Attempts | medium | T1110 |
+| `event_log_clearing` | Windows Event Log Cleared | high | T1070.001 |
+| `suspicious_dns_query` | Suspicious DNS Query to Known Malicious TLD | medium | T1071.004 |
+| `lolbin_execution` | LOLBin Suspicious Execution | medium | T1218 |
+| `firewall_port_scan` | Potential Port Scan Detected | medium | T1046 |
+| `proxy_suspicious_user_agent` | Suspicious User Agent in Proxy Logs | medium | T1071.001 |
+| `registry_persistence` | Registry Run Key Persistence | medium | T1547.001 |
+| `network_connection_suspicious_port` | Outbound Connection to Non-Standard Port | low | T1095 |
+| `linux_reverse_shell` | Linux Reverse Shell Detected | critical | T1059.004 |
+
+---
+
+## Integration with Nebula Forge
+
+SigmaForge occupies the **Detect** phase in the Nebula Forge pipeline and has two primary integration points.
+
+### SigmaForge ↔ EndpointForge (closed-loop validation)
+
+EndpointForge runs on the monitored host and exports findings as Wazuh-formatted log entries via `WazuhExporter`. SigmaForge generates the Wazuh XML rules that Wazuh uses to alert on those findings.
+
+The loop:
+
+1. **Author** — write a detection rule in SigmaForge targeting a specific technique (e.g. T1547.001 — Registry Run Key persistence).
+2. **Deploy** — use `cli.py convert rule.yml --backend wazuh --rule-id 100300 --group-name sigma_rules` to produce Wazuh XML; drop the output into the Wazuh rules directory.
+3. **Trigger** — run a persistence check in EndpointForge (`POST /api/scan/persistence` or `POST /api/scan/registry`). EndpointForge's `WazuhExporter.export_findings()` writes findings to the Wazuh log path.
+4. **Validate** — confirm Wazuh fires the rule against the exported telemetry. If the rule does not fire, the detection gap feeds back into SigmaForge for tuning.
+5. **Iterate** — adjust the rule's field conditions in SigmaForge, re-export the Wazuh XML, re-validate.
+
+The Wazuh field maps in `WAZUH_FIELD_MAP` (`windows_sysmon`, `windows_security`, `linux_auth`, etc.) are designed to match the field paths that Wazuh decoders produce from real agent data. This means a SigmaForge-generated Wazuh rule referencing `win.eventdata.commandLine` will match actual Sysmon EventID 1 output from a Wazuh-enrolled Windows agent.
+
+Home lab target: Wazuh server at `192.168.46.100` (v4.14.4), Win11x01 agent running SwiftOnSecurity Sysmon config.
+
+### SigmaForge ↔ SIREN (incident documentation)
+
+When a SigmaForge rule fires and an incident is declared, the detection rule metadata feeds directly into a SIREN (`IncidentReport`) entry:
+
+- The rule `title` and `description` become the incident description.
+- MITRE technique IDs (`mitre_techniques` list) map to the SIREN `recommendations` or timeline `source` field.
+- The Sigma `level` field (`high`, `critical`) aligns with SIREN's `SeverityLevel` enum for consistent severity scoring across the detection-to-report pipeline.
+
+### SigmaForge in the full pipeline
+
+```
+SigmaForge (Detect)
+    │
+    ├── Wazuh XML → Wazuh SIEM → alert fires
+    │
+    ├── EndpointForge telemetry validates rule in lab
+    │       (closed-loop: gap found → return to SigmaForge)
+    │
+    └── Rule fires in production
+            │
+            └── SIREN (Report) — IR report with technique context
+```
+
+---
 
 ## Project Structure
 
 ```
 SigmaForge/
-├── app.py                  # Flask web application
-├── cli.py                  # CLI interface
-├── requirements.txt        # Python dependencies
+├── app.py                  # Flask web application and REST API
+├── cli.py                  # CLI — generate / validate / convert / template / templates / logsources
+├── requirements.txt
 ├── src/
 │   ├── __init__.py
-│   └── sigma_engine.py     # Core engine (generator, validator, converter)
+│   └── sigma_engine.py     # SigmaRule, SigmaValidator, SIEMConverter, RULE_TEMPLATES, LOG_SOURCES
 ├── templates/
-│   └── index.html          # Web UI template
+│   └── index.html          # Single-page web UI (Rule Builder, Templates, Validator, Rule Library)
 ├── static/
-│   ├── css/style.css       # Dark theme stylesheet
-│   └── js/app.js           # Frontend JavaScript
-├── rules/                  # Saved rule library
+│   ├── css/style.css
+│   └── js/app.js
+├── rules/                  # Saved rule library (.yml files)
 ├── SECURITY.md
-├── LICENSE
-└── README.md
+└── LICENSE
 ```
 
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/generate` | POST | Generate rule from form data |
-| `/api/template/<key>` | GET | Load pre-built template |
-| `/api/validate` | POST | Validate Sigma YAML |
-| `/api/convert` | POST | Convert to SIEM query |
-| `/api/library/save` | POST | Save rule to library |
-| `/api/library/list` | GET | List saved rules |
-| `/api/library/load/<file>` | GET | Load rule from library |
-| `/api/library/delete/<file>` | DELETE | Delete saved rule |
-| `/api/library/export` | GET | Export all rules as JSON |
-| `/api/log-sources` | GET | List available log sources |
-| `/api/mitre` | GET | MITRE ATT&CK technique map |
-| `/api/templates` | GET | List available templates |
-
-## Related Tools
-
-| Tool | Purpose | Link |
-|------|---------|------|
-| **YaraForge** | YARA rule generation for malware/file detection | [GitHub](https://github.com/Rootless-Ghost/YaraForge) |
-| **SnortForge** | Snort IDS/IPS rule generation for network detection | [GitHub](https://github.com/Rootless-Ghost/SnortForge) |
-| **SigmaForge** | Sigma rule generation for SIEM detection | This repo |
-| **SIREN** | NIST 800-61 incident response report generator | [GitHub](https://github.com/Rootless-Ghost/SIREN) |
-| **EndpointForge** | Host-based endpoint monitor with Wazuh SIEM integration | [GitHub](https://github.com/Rootless-Ghost/EndpointForge) |
-
-## Roadmap
-
-### v2 — Released
-
-**Wazuh XML Backend (Phase 1 — Complete)**
-- Native Wazuh XML rule emitter added to `src/sigma_engine.py`
-- Logsource → decoder mapping (`_DECODER_PARENT` table)
-- MITRE ATT&CK tagging (`<mitre><id>` blocks)
-- Severity level mapping (Sigma → Wazuh rule level)
-- OR conditions → multiple `<rule>` elements
-- NOT conditions → `negate="yes"` on `<field>` elements
-- Validated end-to-end against live Wazuh 4.14.4 / Win11x01 agent (EventID 1102, T1070.001)
-
-**Wazuh XML Backend (Phase 2 — Complete)**
-- CLI wiring (`--backend wazuh` flag with `--rule-id` / `--group-name`)
-- Flask UI wiring (Wazuh output tab with inline re-convert panel)
-- `<if_sid>` parent map audit and remap per logsource/service (Security → 63108, Sysmon → 61600, System → 60010, Linux syslog → 1002)
-- Decoder-scoped `WAZUH_FIELD_MAP` — Windows Security, Sysmon, catch-all, and Linux auth/audit/syslog sub-maps
-
-**QRadar AQL & Detection-as-Code JSON (Complete)**
-- QRadar AQL backend: full AQL query generation with logsource filtering, field mapping, wildcard/regex/exact-match handling, and multi-value `IN()` collapsing
-- Detection-as-Code JSON backend: structured JSON export preserving full detection logic, MITRE technique IDs, and metadata for CI/CD and SOAR pipeline integration
-
-**Additional Backends (Planned)**
-- CrowdStrike Falcon Query Language (FQL)
-- Microsoft Defender XDR Advanced Hunting (KQL / DeviceEvents schema)
-
-### Future Considerations
-- REST API mode for CI/CD and SOAR pipeline integration
-- Rule performance hints (unbounded content matches, missing fast_pattern)
-- Field mapping profiles (Windows default, MDE schema, Elastic ECS)
-- Carbon Black (CBQL) backend
-- Field normalization layer: Sigma → canonical schema → backend mapping (prerequisite for scaling additional backends; pySigma has no native Wazuh backend — custom canonical schema is the path forward, not pySigma integration)
-
-
-## License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) for details.
-
+---
 
 <div align="center">
 
-Built by [Rootless-Ghost](https://github.com/Rootless-Ghost) 
+Built by [Rootless-Ghost](https://github.com/Rootless-Ghost)
 
 </div>
