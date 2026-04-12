@@ -219,22 +219,24 @@ SigmaForge/
 - NOT conditions → `negate="yes"` on `<field>` elements
 - Validated end-to-end against live Wazuh 4.14.4 / Win11x01 agent (EventID 1102, T1070.001)
 
-**Wazuh XML Backend (Phase 2 — Planned)**
-- CLI wiring (`--backend wazuh` flag)
-- Flask UI wiring (Wazuh output tab)
-- `<if_sid>` parent map audit and remap per logsource/service
-- Decoder-scoped `WAZUH_FIELD_MAP` (Linux rules currently inherit Windows field names)
-- pySigma integration for accurate field name translation
+**Wazuh XML Backend (Phase 2 — Complete)**
+- CLI wiring (`--backend wazuh` flag with `--rule-id` / `--group-name`)
+- Flask UI wiring (Wazuh output tab with inline re-convert panel)
+- `<if_sid>` parent map audit and remap per logsource/service (Security → 63108, Sysmon → 61600, System → 60010, Linux syslog → 1002)
+- Decoder-scoped `WAZUH_FIELD_MAP` — Windows Security, Sysmon, catch-all, and Linux auth/audit/syslog sub-maps
 
 **Additional Backends (Planned)**
 - CrowdStrike Falcon Query Language (FQL)
 - QRadar AQL
+- Microsoft Defender XDR Advanced Hunting (KQL / DeviceEvents schema)
+- Detection-as-Code JSON output (ECS-normalized, CI/CD and SOAR integration)
 
 ### Future Considerations
 - REST API mode for CI/CD and SOAR pipeline integration
 - Rule performance hints (unbounded content matches, missing fast_pattern)
 - Field mapping profiles (Windows default, MDE schema, Elastic ECS)
 - Carbon Black (CBQL) backend
+- Field normalization layer: Sigma → canonical schema → backend mapping (prerequisite for scaling additional backends; evaluate pySigma integration)
 
 
 ## License

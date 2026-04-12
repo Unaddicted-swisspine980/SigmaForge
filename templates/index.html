@@ -233,10 +233,26 @@
                                 <button class="output-tab" data-backend="elastic">Elastic KQL</button>
                                 <button class="output-tab" data-backend="eql">Elastic EQL</button>
                                 <button class="output-tab" data-backend="sentinel">Sentinel KQL</button>
+                                <button class="output-tab" data-backend="wazuh">Wazuh XML</button>
                             </div>
                             <div class="output-section" id="siem-output" style="display:none;">
                                 <div class="output-actions">
                                     <button class="btn btn-sm btn-secondary" onclick="copySIEMQuery()">Copy Query</button>
+                                </div>
+                                <!-- Wazuh re-convert options — shown only when Wazuh tab is active -->
+                                <div id="wazuh-options" class="wazuh-options" style="display:none;">
+                                    <div class="wazuh-options-row">
+                                        <div class="form-group wazuh-opt-field">
+                                            <label for="wazuh-rule-id">Rule ID</label>
+                                            <input type="number" id="wazuh-rule-id" value="100001" min="1" max="999999">
+                                        </div>
+                                        <div class="form-group wazuh-opt-field">
+                                            <label for="wazuh-group-name">Group Name</label>
+                                            <input type="text" id="wazuh-group-name" value="sigma_rules" maxlength="64">
+                                        </div>
+                                        <button class="btn btn-sm btn-accent wazuh-opt-apply"
+                                                onclick="applyWazuhOptions('main')">Re-convert</button>
+                                    </div>
                                 </div>
                                 <pre class="code-output" id="output-siem"></pre>
                             </div>
@@ -303,6 +319,22 @@
                                 <button class="output-tab" data-backend="elastic" data-target="validator">Elastic KQL</button>
                                 <button class="output-tab" data-backend="eql" data-target="validator">Elastic EQL</button>
                                 <button class="output-tab" data-backend="sentinel" data-target="validator">Sentinel KQL</button>
+                                <button class="output-tab" data-backend="wazuh" data-target="validator">Wazuh XML</button>
+                            </div>
+                            <!-- Wazuh re-convert options — shown only when Wazuh tab is active -->
+                            <div id="validator-wazuh-options" class="wazuh-options" style="display:none;">
+                                <div class="wazuh-options-row">
+                                    <div class="form-group wazuh-opt-field">
+                                        <label for="validator-wazuh-rule-id">Rule ID</label>
+                                        <input type="number" id="validator-wazuh-rule-id" value="100001" min="1" max="999999">
+                                    </div>
+                                    <div class="form-group wazuh-opt-field">
+                                        <label for="validator-wazuh-group-name">Group Name</label>
+                                        <input type="text" id="validator-wazuh-group-name" value="sigma_rules" maxlength="64">
+                                    </div>
+                                    <button class="btn btn-sm btn-accent wazuh-opt-apply"
+                                            onclick="applyWazuhOptions('validator')">Re-convert</button>
+                                </div>
                             </div>
                             <pre class="code-output" id="validator-siem-output"></pre>
                         </div>
@@ -336,7 +368,7 @@
     <footer class="app-footer">
         <span>SigmaForge v1.0.0</span>
         <span>•</span>
-        <span>Splunk SPL · Elastic KQL · Elastic EQL · Sentinel KQL</span>
+        <span>Splunk SPL · Elastic KQL · Elastic EQL · Sentinel KQL · Wazuh XML</span>
         <span>•</span>
         <span>Built by <a href="https://github.com/Rootless-Ghost" style="color: var(--text-link); text-decoration: none;">Rootless-Ghost</a></span>
     </footer>

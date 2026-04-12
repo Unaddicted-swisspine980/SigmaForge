@@ -73,10 +73,18 @@ def api_generate():
         validation = SigmaValidator.validate(rule_yaml)
 
         # Convert to all backends
+        wazuh_rule_id    = int(data.get("rule_id",    100001))
+        wazuh_group_name = str(data.get("group_name", "sigma_rules"))
         conversions = {}
-        for backend in ["splunk", "elastic", "eql", "sentinel"]:
+        for backend in ["splunk", "elastic", "eql", "sentinel", "wazuh"]:
             try:
-                conversions[backend] = SIEMConverter.convert(rule_yaml, backend)
+                if backend == "wazuh":
+                    conversions[backend] = SIEMConverter.convert(
+                        rule_yaml, backend,
+                        rule_id=wazuh_rule_id, group_name=wazuh_group_name,
+                    )
+                else:
+                    conversions[backend] = SIEMConverter.convert(rule_yaml, backend)
             except Exception as e:
                 conversions[backend] = f"Conversion error: {str(e)}"
 
@@ -176,10 +184,16 @@ def api_convert():
         rule_yaml = data.get("rule_yaml", "")
         backend = data.get("backend", "splunk")
 
-        if backend not in ["splunk", "elastic", "eql", "sentinel"]:
+        if backend not in ["splunk", "elastic", "eql", "sentinel", "wazuh"]:
             return jsonify({"success": False, "error": f"Unknown backend: {backend}"}), 400
 
-        query = SIEMConverter.convert(rule_yaml, backend)
+        if backend == "wazuh":
+            rule_id    = int(data.get("rule_id",    100001))
+            group_name = str(data.get("group_name", "sigma_rules"))
+            query = SIEMConverter.convert(rule_yaml, backend,
+                                          rule_id=rule_id, group_name=group_name)
+        else:
+            query = SIEMConverter.convert(rule_yaml, backend)
         return jsonify({"success": True, "query": query, "backend": backend})
     except Exception as e:
         logging.exception("Unexpected error in api_convert for backend %s", backend)

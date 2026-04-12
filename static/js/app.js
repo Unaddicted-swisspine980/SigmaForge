@@ -52,12 +52,78 @@ function initSIEMTabs() {
             if (target === 'validator') {
                 document.getElementById('validator-siem-output').textContent =
                     validatorConversions[backend] || 'No conversion available';
+                document.getElementById('validator-wazuh-options').style.display =
+                    backend === 'wazuh' ? 'block' : 'none';
             } else {
                 document.getElementById('output-siem').textContent =
                     currentConversions[backend] || 'No conversion available';
+                document.getElementById('wazuh-options').style.display =
+                    backend === 'wazuh' ? 'block' : 'none';
             }
         });
     });
+}
+
+// ── Wazuh Re-convert ─────────────────────
+function applyWazuhOptions(target) {
+    const isValidator = target === 'validator';
+    const ruleYaml = isValidator
+        ? document.getElementById('validate-input').value
+        : currentRuleYaml;
+
+    if (!ruleYaml || !ruleYaml.trim()) {
+        showToast(isValidator ? 'Paste a Sigma rule first' : 'Generate a rule first', 'error');
+        return;
+    }
+
+    const ruleIdInput = document.getElementById(
+        isValidator ? 'validator-wazuh-rule-id' : 'wazuh-rule-id'
+    );
+    const groupNameInput = document.getElementById(
+        isValidator ? 'validator-wazuh-group-name' : 'wazuh-group-name'
+    );
+
+    const ruleId = parseInt(ruleIdInput.value, 10);
+    if (!Number.isInteger(ruleId) || ruleId < 1) {
+        showToast('Rule ID must be a positive integer', 'error');
+        ruleIdInput.focus();
+        return;
+    }
+
+    const groupName = groupNameInput.value.trim();
+    if (!groupName) {
+        showToast('Group name cannot be empty', 'error');
+        groupNameInput.focus();
+        return;
+    }
+
+    fetch('/api/convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            rule_yaml: ruleYaml,
+            backend: 'wazuh',
+            rule_id: ruleId,
+            group_name: groupName,
+        }),
+    })
+    .then(res => res.json())
+    .then(result => {
+        const output = result.query || result.error || 'Conversion error';
+        if (isValidator) {
+            validatorConversions.wazuh = output;
+            document.getElementById('validator-siem-output').textContent = output;
+        } else {
+            currentConversions.wazuh = output;
+            document.getElementById('output-siem').textContent = output;
+        }
+        if (result.success) {
+            showToast('Wazuh XML updated', 'success');
+        } else {
+            showToast(result.error || 'Conversion failed', 'error');
+        }
+    })
+    .catch(err => showToast('Error: ' + err.message, 'error'));
 }
 
 // ── MITRE ATT&CK ─────────────────────────
@@ -635,13 +701,21 @@ function convertFromValidator() {
         return;
     }
 
-    const promises = ['splunk', 'elastic', 'eql', 'sentinel'].map(backend =>
-        fetch('/api/convert', {
+    const ruleId    = parseInt(document.getElementById('validator-wazuh-rule-id').value, 10) || 100001;
+    const groupName = document.getElementById('validator-wazuh-group-name').value.trim() || 'sigma_rules';
+
+    const promises = ['splunk', 'elastic', 'eql', 'sentinel', 'wazuh'].map(backend => {
+        const body = { rule_yaml: ruleYaml, backend };
+        if (backend === 'wazuh') {
+            body.rule_id    = ruleId;
+            body.group_name = groupName;
+        }
+        return fetch('/api/convert', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rule_yaml: ruleYaml, backend })
-        }).then(r => r.json()).then(r => ({ backend, query: r.query || r.error || 'Error' }))
-    );
+            body: JSON.stringify(body),
+        }).then(r => r.json()).then(r => ({ backend, query: r.query || r.error || 'Error' }));
+    });
 
     Promise.all(promises).then(results => {
         validatorConversions = {};
